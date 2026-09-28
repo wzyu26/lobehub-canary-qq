@@ -23,6 +23,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     permissions:
+      actions: read
       contents: write
       packages: write
     env:
@@ -81,7 +82,7 @@ jobs:
             org.opencontainers.image.revision=${{ steps.source.outputs.sha }}
             io.lobehub.qq-patch=18187-8d48bcdbd746aa036f0fde9f1ba934cc8ac26a14
           cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-to: type=gha,mode=max,ignore-error=true,timeout=3m
       - name: Verify runtime and promote canary tag
         if: steps.source.outputs.needed == 'true'
         env:
