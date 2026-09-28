@@ -1,0 +1,87 @@
+diff --git a/packages/chat-adapter-qq/src/adapter.ts b/packages/chat-adapter-qq/src/adapter.ts
+--- a/packages/chat-adapter-qq/src/adapter.ts
++++ b/packages/chat-adapter-qq/src/adapter.ts
+@@ -37,6 +37,12 @@
+   private readonly formatConverter: QQFormatConverter;
+   private _userName: string;
+   private _botUserId?: string;
++  // QQ requires an inbound msg_id for passive replies. Keep this scoped to
++  // the adapter (one bot) and thread; expire and bound it for long-lived servers.
++  private readonly replyContexts = new Map<
++    string,
++    { expiresAt: number; msgId: string; seq: number }
++  >();
+   private chat!: ChatInstance;
+   private logger!: Logger;
+ 
+@@ -220,23 +226,24 @@
+   ): Promise<RawMessage<QQRawMessage>> {
+     const { type, id, guildId } = this.decodeThreadId(threadId);
+     const text = this.formatConverter.renderPostable(message);
++    const replyOptions = this.nextReplyOptions(threadId);
+ 
+     let response;
+     switch (type) {
+       case 'group': {
+-        response = await this.api.sendGroupMessage(id, text);
++        response = await this.api.sendGroupMessage(id, text, replyOptions);
+         break;
+       }
+       case 'guild': {
+-        response = await this.api.sendGuildMessage(id, text);
++        response = await this.api.sendGuildMessage(id, text, replyOptions);
+         break;
+       }
+       case 'c2c': {
+-        response = await this.api.sendC2CMessage(id, text);
++        response = await this.api.sendC2CMessage(id, text, replyOptions);
+         break;
+       }
+       case 'dms': {
+-        response = await this.api.sendDmsMessage(guildId || id, text);
++        response = await this.api.sendDmsMessage(guildId || id, text, replyOptions);
+         break;
+       }
+       default: {
+@@ -341,6 +348,7 @@
+     threadId: string,
+     eventType: string,
+   ): Promise<Message<QQRawMessage>> {
++    this.rememberReplyContext(threadId, data.id);
+     const content = data.content || '';
+     const cleanText = this.formatConverter.cleanMentions(content);
+     const formatted = parseMarkdown(cleanText);
+@@ -385,6 +393,33 @@
+       text: cleanText,
+       threadId,
+     });
++  }
++
++  private rememberReplyContext(threadId: string, msgId?: string): void {
++    if (!msgId) return;
++    const now = Date.now();
++    for (const [key, context] of this.replyContexts) {
++      if (context.expiresAt <= now) this.replyContexts.delete(key);
++    }
++    // A repeated delivery must not reset msg_seq or extend its reply window.
++    if (this.replyContexts.get(threadId)?.msgId === msgId) return;
++    this.replyContexts.delete(threadId);
++    if (this.replyContexts.size >= 1024) {
++      const oldest = this.replyContexts.keys().next().value;
++      if (oldest !== undefined) this.replyContexts.delete(oldest);
++    }
++    this.replyContexts.set(threadId, { expiresAt: now + 5 * 60_000, msgId, seq: 0 });
++  }
++
++  private nextReplyOptions(threadId: string): { msgId: string; msgSeq: number } | undefined {
++    const context = this.replyContexts.get(threadId);
++    if (!context) return undefined;
++    if (context.expiresAt <= Date.now()) {
++      this.replyContexts.delete(threadId);
++      return undefined;
++    }
++    // Reserve before awaiting HTTP so concurrent posts cannot reuse a sequence.
++    return { msgId: context.msgId, msgSeq: ++context.seq };
+   }
+ 
+   // ------------------------------------------------------------------

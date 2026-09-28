@@ -1,0 +1,95 @@
+diff --git a/packages/chat-adapter-qq/src/passive-reply.test.ts b/packages/chat-adapter-qq/src/passive-reply.test.ts
+new file mode 100644
+--- /dev/null
++++ b/packages/chat-adapter-qq/src/passive-reply.test.ts
+@@ -0,0 +1,90 @@
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
++
++import { QQAdapter } from './adapter';
++import { QQApiClient } from './api';
++
++describe('QQ passive replies', () => {
++  let adapter: QQAdapter;
++  let send: ReturnType<typeof vi.spyOn>;
++  const chat = {
++    getLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }),
++    getUserName: () => 'test-bot',
++    processMessage: vi.fn(),
++  };
++
++  beforeEach(async () => {
++    vi.useFakeTimers();
++    vi.setSystemTime(new Date('2026-09-28T16:00:00Z'));
++    chat.processMessage.mockReset();
++    vi.spyOn(QQApiClient.prototype, 'getAccessToken').mockResolvedValue('test-token');
++    vi.spyOn(QQApiClient.prototype, 'getBotInfo').mockResolvedValue(null);
++    send = vi.spyOn(QQApiClient.prototype, 'sendGroupMessage').mockResolvedValue({
++      id: 'reply-id', timestamp: '2026-09-28T16:00:01Z',
++    });
++    adapter = new QQAdapter({ appId: 'app', clientSecret: 'secret' });
++    await adapter.initialize(chat as any);
++  });
++
++  afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); });
++
++  async function receive(id = 'incoming-1', group = 'group-1', event = 'GROUP_AT_MESSAGE_CREATE', extra = {}) {
++    await adapter.handleWebhook(new Request('https://example.test/webhook', {
++      method: 'POST',
++      body: JSON.stringify({ op: 0, t: event, d: {
++        id, content: 'hello', timestamp: new Date().toISOString(),
++        group_openid: group, author: { id: 'user-1' }, ...extra,
++      } }),
++    }));
++    const factory = chat.processMessage.mock.calls.at(-1)![2];
++    return factory();
++  }
++
++  it('sends ack and final reply with inbound msg_id and distinct sequences', async () => {
++    await receive();
++    await adapter.postMessage('qq:group:group-1', 'ack');
++    await adapter.postMessage('qq:group:group-1', 'answer');
++    expect(send).toHaveBeenNthCalledWith(1, 'group-1', 'ack', { msgId: 'incoming-1', msgSeq: 1 });
++    expect(send).toHaveBeenNthCalledWith(2, 'group-1', 'answer', { msgId: 'incoming-1', msgSeq: 2 });
++  });
++
++  it('does not reset sequences on duplicate inbound delivery', async () => {
++    await receive();
++    await adapter.postMessage('qq:group:group-1', 'ack');
++    await receive();
++    await adapter.editMessage('qq:group:group-1', 'reply-id', 'final');
++    expect(send).toHaveBeenLastCalledWith('group-1', 'final', { msgId: 'incoming-1', msgSeq: 2 });
++  });
++
++  it('isolates groups and starts a fresh sequence for a new incoming message', async () => {
++    await receive();
++    await receive('incoming-2', 'group-2');
++    await adapter.postMessage('qq:group:group-1', 'one');
++    await adapter.postMessage('qq:group:group-2', 'two');
++    expect(send).toHaveBeenNthCalledWith(1, 'group-1', 'one', { msgId: 'incoming-1', msgSeq: 1 });
++    expect(send).toHaveBeenNthCalledWith(2, 'group-2', 'two', { msgId: 'incoming-2', msgSeq: 1 });
++    await receive('incoming-3');
++    await adapter.postMessage('qq:group:group-1', 'three');
++    expect(send).toHaveBeenLastCalledWith('group-1', 'three', { msgId: 'incoming-3', msgSeq: 1 });
++  });
++
++  it('reserves different sequences for concurrent sends', async () => {
++    await receive();
++    await Promise.all([adapter.postMessage('qq:group:group-1', 'one'), adapter.postMessage('qq:group:group-1', 'two')]);
++    expect(send.mock.calls.map((c) => c[2]?.msgSeq)).toEqual([1, 2]);
++  });
++
++  it('does not attach an expired ID or one from another thread', async () => {
++    await receive();
++    vi.advanceTimersByTime(5 * 60_000);
++    await adapter.postMessage('qq:group:group-1', 'expired');
++    await adapter.postMessage('qq:group:other', 'new');
++    expect(send.mock.calls.map((c) => c[2])).toEqual([undefined, undefined]);
++  });
++
++  it('uses passive reply context for private messages as well', async () => {
++    const direct = vi.spyOn(QQApiClient.prototype, 'sendC2CMessage').mockResolvedValue({ id: 'r', timestamp: '' });
++    await receive('dm-1', '', 'C2C_MESSAGE_CREATE', { group_openid: undefined });
++    await adapter.postMessage('qq:c2c:user-1', 'answer');
++    expect(direct).toHaveBeenCalledWith('user-1', 'answer', { msgId: 'dm-1', msgSeq: 1 });
++  });
++});

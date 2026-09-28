@@ -2,6 +2,8 @@
 
 Tracks `lobehub/lobehub:canary` source and applies the reviewed code and regression-test hunks from [PR #18187](https://github.com/lobehub/lobehub/pull/18187), pinned to PR head `8d48bcdbd746aa036f0fde9f1ba934cc8ac26a14`.
 
+Also includes a local QQ passive-reply fix: adapter replies carry the incoming `msg_id` and increment `msg_seq`, so group replies are not rejected as unauthorized proactive messages (`40034105`). Context is isolated per bot/thread, bounded, and expires after five minutes. The build verifies the new regression suite fails before this patch and passes afterward. This covers the in-process Chat SDK reply path used by this deployment; separate asynchronous callback or proactive tool-send paths are not covered by this patch.
+
 - Checks upstream every six hours (00:23, 06:23, 12:23, 18:23 UTC); unchanged commits are skipped.
 - Builds `linux/amd64` using the upstream Dockerfile, with the QQ adapter test suite as a required build step.
 - Publishes `ghcr.io/wzyu26/lobehub-canary-qq:canary` only after tests, image build and a basic runtime/filesystem smoke check succeed.
