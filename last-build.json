@@ -1,6 +1,6 @@
 {
-  "upstream": "d28985a7664271ec5258a222d38f5bb6e776a59d",
-  "digest": "sha256:8f054dc3b869248211a495bb4ee6f23ee478fa9bf3a99b21e143ab931fac6d37",
-  "image": "ghcr.io/wzyu26/lobehub-canary-qq:canary-d28985a76642-37859521854-1",
-  "run": "https://github.com/wzyu26/lobehub-canary-qq/actions/runs/37859521854"
+  "upstream": "3cf54b167d461999abbef92a69c732f7e8c6b52a",
+  "digest": "sha256:8d064af4605cb83ff79476f3d391dfba89fff815c352060d25657722f9f754c3",
+  "image": "ghcr.io/wzyu26/lobehub-canary-qq:canary-3cf54b167d46-37893147117-1",
+  "run": "https://github.com/wzyu26/lobehub-canary-qq/actions/runs/37893147117"
 }
