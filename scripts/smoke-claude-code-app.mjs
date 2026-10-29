@@ -14,18 +14,25 @@ const validateCatalog = (body) => {
     }
   }
   const worker = providers['claude-code'];
-  const enabledAnnotation =
-    body?.result?.data?.meta?.values?.['serverConfig.aiProvider.claude-code.enabled'];
-  // SuperJSON represents undefined as null with this exact metadata annotation.
-  const enabled =
-    worker.enabled === null &&
-    Array.isArray(enabledAnnotation) &&
-    enabledAnnotation.length === 1 &&
-    enabledAnnotation[0] === 'undefined'
+  const readWorkerField = (field) => {
+    const value = worker[field];
+    const annotation =
+      body?.result?.data?.meta?.values?.[`serverConfig.aiProvider.claude-code.${field}`];
+    // SuperJSON represents undefined as null with this exact metadata annotation.
+    return value === null &&
+      Array.isArray(annotation) &&
+      annotation.length === 1 &&
+      annotation[0] === 'undefined'
       ? undefined
-      : worker.enabled;
+      : value;
+  };
+  const enabled = readWorkerField('enabled');
   if (enabled !== undefined && enabled !== false) return 'worker-provider-enabled';
-  if (!Array.isArray(worker.serverModelLists) || worker.serverModelLists.length !== 0) {
+  const serverModelLists = readWorkerField('serverModelLists');
+  if (
+    serverModelLists !== undefined &&
+    (!Array.isArray(serverModelLists) || serverModelLists.length !== 0)
+  ) {
     return 'unexpected-static-worker-models';
   }
   return undefined;
