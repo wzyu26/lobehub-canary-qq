@@ -7,7 +7,7 @@ on:
     paths: ['.github/workflows/publish-claude-code-candidate.yml']
 
 concurrency:
-  group: publish-claude-code-f8cf69651dc364ef376150aa45b938d7716a3119
+  group: publish-claude-code-96f2ac4dc3ae8f1821a8f484a1732a75b3c8b159
   cancel-in-progress: false
 
 permissions:
@@ -22,8 +22,8 @@ jobs:
     timeout-minutes: 120
     env:
       SOURCE_REPOSITORY: wzyu26/lobehub-canary-qq
-      SOURCE_RUN_ID: '40967877277'
-      SOURCE_SHA: f8cf69651dc364ef376150aa45b938d7716a3119
+      SOURCE_RUN_ID: '40969261590'
+      SOURCE_SHA: 96f2ac4dc3ae8f1821a8f484a1732a75b3c8b159
       PUBLIC_IMAGE: ghcr.io/wzyu26/lobehub-canary-qq
       CLAUDE_CODE_VERSION: 2.1.301
     steps:
