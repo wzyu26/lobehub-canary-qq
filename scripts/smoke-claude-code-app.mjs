@@ -14,7 +14,17 @@ const validateCatalog = (body) => {
     }
   }
   const worker = providers['claude-code'];
-  if (worker.enabled !== undefined && worker.enabled !== false) return 'worker-provider-enabled';
+  const enabledAnnotation =
+    body?.result?.data?.meta?.values?.['serverConfig.aiProvider.claude-code.enabled'];
+  // SuperJSON represents undefined as null with this exact metadata annotation.
+  const enabled =
+    worker.enabled === null &&
+    Array.isArray(enabledAnnotation) &&
+    enabledAnnotation.length === 1 &&
+    enabledAnnotation[0] === 'undefined'
+      ? undefined
+      : worker.enabled;
+  if (enabled !== undefined && enabled !== false) return 'worker-provider-enabled';
   if (!Array.isArray(worker.serverModelLists) || worker.serverModelLists.length !== 0) {
     return 'unexpected-static-worker-models';
   }
