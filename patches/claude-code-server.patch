@@ -274,10 +274,10 @@ index 0000000000..c67052951a
 +limits require the staged deployment acceptance suite before enabling users.
 diff --git a/apps/claude-code-worker/__tests__/startup.integration.test.ts b/apps/claude-code-worker/__tests__/startup.integration.test.ts
 new file mode 100644
-index 0000000000..b9a3c4fd52
+index 0000000000..04633b176b
 --- /dev/null
 +++ b/apps/claude-code-worker/__tests__/startup.integration.test.ts
-@@ -0,0 +1,55 @@
+@@ -0,0 +1,66 @@
 +import { spawnSync } from 'node:child_process';
 +import { cp, mkdtemp, readFile, rm } from 'node:fs/promises';
 +import { tmpdir } from 'node:os';
@@ -287,7 +287,7 @@ index 0000000000..b9a3c4fd52
 +import { afterEach, describe, expect, it } from 'vitest';
 +
 +const workerRoot = fileURLToPath(new URL('../', import.meta.url));
-+const bun = process.env.BUN_EXECUTABLE ?? 'bun';
++const configuredBun = process.env.BUN_EXECUTABLE ?? 'bun';
 +const temporaryDirectories: string[] = [];
 +const temporaryDirectory = async () => {
 +  const directory = await mkdtemp(path.join(tmpdir(), 'claude-worker-startup-'));
@@ -307,6 +307,15 @@ index 0000000000..b9a3c4fd52
 +
 +describe('built worker initialization outside the source workspace', () => {
 +  it('ships Zod and reaches safe configuration validation without credentials', async () => {
++    // setup-bun adds its binary to PATH. Resolve it before the real startup
++    // intentionally drops PATH along with all credentials and configuration.
++    const located = spawnSync(configuredBun, ['-e', 'process.stdout.write(process.execPath)'], {
++      cwd: workerRoot, encoding: 'utf8', timeout: 15_000,
++    });
++    expect(located.error).toBeUndefined();
++    expect(located.status, located.stderr).toBe(0);
++    const bun = located.stdout.trim();
++    expect(path.isAbsolute(bun)).toBe(true);
 +    const directory = await temporaryDirectory();
 +    const built = spawnSync(bun, [path.join(workerRoot, 'scripts/buildWorker.mjs'), directory], {
 +      cwd: workerRoot, encoding: 'utf8', timeout: 30_000,
@@ -318,6 +327,7 @@ index 0000000000..b9a3c4fd52
 +    const started = spawnSync(bun, [path.join(directory, 'index.js')], {
 +      cwd: directory, encoding: 'utf8', env: {}, timeout: 15_000,
 +    });
++    expect(started.error).toBeUndefined();
 +    expect(started.status, started.stderr).toBe(1);
 +    expect(started.stdout).toBe('');
 +    expect(started.stderr.trim()).toBe('Claude Code worker could not start; check its deployment configuration');
@@ -329,6 +339,7 @@ index 0000000000..b9a3c4fd52
 +    const incomplete = spawnSync(bun, [
 +      path.join(workerRoot, 'scripts/smokeWorkerStartup.mjs'), path.join(missingRuntime, 'index.js'),
 +    ], { cwd: missingRuntime, encoding: 'utf8', timeout: 15_000 });
++    expect(incomplete.error).toBeUndefined();
 +    expect(incomplete.status).not.toBe(0);
 +    expect(incomplete.stderr).toContain('Worker module startup failed before safe configuration validation');
 +  }, 60_000);
