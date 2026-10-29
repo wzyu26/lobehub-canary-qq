@@ -1,0 +1,17 @@
+{
+  "upstream": "61b639191690f49f618d7b1e3ba555975721a7a5",
+  "wrapperRevision": "ac958948f7fc02e81f20cd9b4767deb55b54de4c",
+  "productionImage": "ghcr.io/wzyu26/lobehub-canary-qq@sha256:f0401ce601f92c73bb4f24c1f915d9adff2fd13b408e904d9f14e89e3991c8f1",
+  "productionQqPatch": "18187-8d48bcdbd746aa036f0fde9f1ba934cc8ac26a14",
+  "localQqBaseline": "edfe0138f7abf04aafef2b26d517aaa3e4850228",
+  "sourceRevision": "f38a50f7bebac865a4ffe6bacc70312a7e242638",
+  "patchSha256": "b246e8eef7d8df1522e480a3e9d5f889dc6c49407b9df4bbb2391759bebe9236",
+  "officialClaudeCode": "2.1.301",
+  "featureFlag": "CLAUDE_CODE_SERVER_ENABLED",
+  "defaultEnabled": false,
+  "verifiedAt": "2026-10-29",
+  "server": { "cpu": 2, "memoryMiB": 3499 },
+  "workerConcurrency": 1,
+  "executionMode": "independent-lobehub-turn",
+  "deploymentStatus": "development-not-deployed"
+}
