@@ -138,7 +138,7 @@ index 0000000000..81cbb887dd
 +随后恢复事先记录的旧主应用镜像。保留聊天数据、新增表、每位用户的四个卷和服务凭据文件；不要运行 `down --volumes`，不要删除 state 来“重试”模型。恢复新版本时先接收旧事件并将未收尾任务标为中断，再开放新任务。已经提交的写工具只取原回执，不重新执行。
 diff --git a/apps/claude-code-worker/Dockerfile b/apps/claude-code-worker/Dockerfile
 new file mode 100644
-index 0000000000..f5c8aa92cf
+index 0000000000..ee2634e017
 --- /dev/null
 +++ b/apps/claude-code-worker/Dockerfile
 @@ -0,0 +1,56 @@
@@ -194,10 +194,10 @@ index 0000000000..f5c8aa92cf
 +WORKDIR /workspace
 +# Run the final image's actual entrypoint with no credentials. This must reach
 +# the expected configuration error, not crash while importing MCP/Zod modules.
-+RUN bun /app/smokeWorkerStartup.mjs /app/worker.js
++RUN bun --no-install /app/smokeWorkerStartup.mjs /app/worker.js
 +VOLUME ["/home/claude", "/home/claude/.claude", "/workspace", "/state"]
 +ENTRYPOINT ["/usr/bin/tini", "--"]
-+CMD ["bun", "/app/worker.js"]
++CMD ["bun", "--no-install", "/app/worker.js"]
 diff --git a/apps/claude-code-worker/README.md b/apps/claude-code-worker/README.md
 new file mode 100644
 index 0000000000..c67052951a
@@ -274,10 +274,10 @@ index 0000000000..c67052951a
 +limits require the staged deployment acceptance suite before enabling users.
 diff --git a/apps/claude-code-worker/__tests__/startup.integration.test.ts b/apps/claude-code-worker/__tests__/startup.integration.test.ts
 new file mode 100644
-index 0000000000..04633b176b
+index 0000000000..9ed2fcd85e
 --- /dev/null
 +++ b/apps/claude-code-worker/__tests__/startup.integration.test.ts
-@@ -0,0 +1,66 @@
+@@ -0,0 +1,68 @@
 +import { spawnSync } from 'node:child_process';
 +import { cp, mkdtemp, readFile, rm } from 'node:fs/promises';
 +import { tmpdir } from 'node:os';
@@ -324,7 +324,7 @@ index 0000000000..04633b176b
 +    expect(built.status, built.stderr).toBe(0);
 +    const runtime = JSON.parse(await readFile(path.join(directory, 'node_modules/zod/package.json'), 'utf8'));
 +    expect(runtime.name).toBe('zod');
-+    const started = spawnSync(bun, [path.join(directory, 'index.js')], {
++    const started = spawnSync(bun, ['--no-install', path.join(directory, 'index.js')], {
 +      cwd: directory, encoding: 'utf8', env: {}, timeout: 15_000,
 +    });
 +    expect(started.error).toBeUndefined();
@@ -337,11 +337,13 @@ index 0000000000..04633b176b
 +    const missingRuntime = await temporaryDirectory();
 +    await cp(path.join(directory, 'index.js'), path.join(missingRuntime, 'index.js'));
 +    const incomplete = spawnSync(bun, [
++      '--no-install',
 +      path.join(workerRoot, 'scripts/smokeWorkerStartup.mjs'), path.join(missingRuntime, 'index.js'),
 +    ], { cwd: missingRuntime, encoding: 'utf8', timeout: 15_000 });
 +    expect(incomplete.error).toBeUndefined();
 +    expect(incomplete.status).not.toBe(0);
 +    expect(incomplete.stderr).toContain('Worker module startup failed before safe configuration validation');
++    expect(incomplete.stderr).toMatch(/Cannot find (?:package|module) ['"]zod['"]/);
 +  }, 60_000);
 +});
 diff --git a/apps/claude-code-worker/admin/database.test.ts b/apps/claude-code-worker/admin/database.test.ts
@@ -727,7 +729,7 @@ index 0000000000..7b08382e95
 +  state: {}
 diff --git a/apps/claude-code-worker/package.json b/apps/claude-code-worker/package.json
 new file mode 100644
-index 0000000000..037f529490
+index 0000000000..0a487da315
 --- /dev/null
 +++ b/apps/claude-code-worker/package.json
 @@ -0,0 +1,21 @@
@@ -741,7 +743,7 @@ index 0000000000..037f529490
 +    "build": "bun run build:worker && bun run build:admin",
 +    "build:admin": "bun build admin/index.ts --target=bun --outfile=dist/admin.js",
 +    "build:worker": "bun scripts/buildWorker.mjs",
-+    "start": "bun dist/index.js",
++    "start": "bun --no-install dist/index.js",
 +    "test": "vitest run"
 +  },
 +  "dependencies": {
@@ -788,10 +790,10 @@ index 0000000000..4a5ef06f37
 +console.info('Worker bundle and runtime dependency startup verified');
 diff --git a/apps/claude-code-worker/scripts/smokeWorkerStartup.mjs b/apps/claude-code-worker/scripts/smokeWorkerStartup.mjs
 new file mode 100644
-index 0000000000..0c0d74a7e4
+index 0000000000..ebf01a777d
 --- /dev/null
 +++ b/apps/claude-code-worker/scripts/smokeWorkerStartup.mjs
-@@ -0,0 +1,30 @@
+@@ -0,0 +1,32 @@
 +import { spawnSync } from 'node:child_process';
 +import path from 'node:path';
 +import { fileURLToPath } from 'node:url';
@@ -802,7 +804,9 @@ index 0000000000..0c0d74a7e4
 + * A successful CLI --version or an existing bundle does not test this path. */
 +export const assertWorkerStartup = (entrypoint, executable = process.execPath) => {
 +  const absoluteEntrypoint = path.resolve(entrypoint);
-+  const result = spawnSync(executable, [absoluteEntrypoint], {
++  // A missing dependency must fail, even when Bun could fetch it or use its
++  // global package cache. Only the distributed runtime is under test here.
++  const result = spawnSync(executable, ['--no-install', absoluteEntrypoint], {
 +    cwd: path.dirname(absoluteEntrypoint),
 +    encoding: 'utf8',
 +    // Never inherit service tokens, Claude credentials or network configuration.

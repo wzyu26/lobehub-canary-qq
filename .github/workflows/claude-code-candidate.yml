@@ -52,6 +52,11 @@ jobs:
           npm install --global corepack@latest
           corepack enable
           pnpm install --no-frozen-lockfile
+      - name: Worker and shared CLI/MCP checks
+        working-directory: source/apps/claude-code-worker
+        run: |
+          pnpm exec vitest run
+          bun run build
       - name: Type check and server integration checks
         working-directory: source
         run: |
@@ -60,11 +65,6 @@ jobs:
       - name: Ordinary assistant routing and model entry
         working-directory: source
         run: pnpm exec vitest run src/store/chat/slices/agentRun/actions/__tests__/claudeCodeRouting.test.ts src/store/chat/slices/agentRun/actions/dispatch/resolveAssistantTransport.test.ts src/hooks/claudeCodeModels.test.ts src/hooks/useClaudeCodeModels.test.ts apps/server/src/services/aiAgent/pipeline/turnSetup.claudeCode.test.ts apps/server/src/services/agentRuntime/CompletionLifecycle/index.backgroundDb.test.ts
-      - name: Worker and shared CLI/MCP checks
-        working-directory: source/apps/claude-code-worker
-        run: |
-          pnpm exec vitest run
-          bun run build
       - name: Atomic stream delivery on an isolated Redis
         working-directory: source
         env:
