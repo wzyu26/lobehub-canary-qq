@@ -7,7 +7,7 @@ on:
     paths: ['.github/workflows/publish-claude-code-candidate.yml']
 
 concurrency:
-  group: publish-claude-code-2ee61aeb8157d5a3985a882761592dccd414dfe5
+  group: publish-claude-code-14d884799fcb90b56e7d3a73767f74bc98a9d42a
   cancel-in-progress: false
 
 permissions:
@@ -22,8 +22,8 @@ jobs:
     timeout-minutes: 120
     env:
       SOURCE_REPOSITORY: wzyu26/lobehub-canary-qq
-      SOURCE_RUN_ID: '40959391811'
-      SOURCE_SHA: 2ee61aeb8157d5a3985a882761592dccd414dfe5
+      SOURCE_RUN_ID: '40961595991'
+      SOURCE_SHA: 14d884799fcb90b56e7d3a73767f74bc98a9d42a
       PUBLIC_IMAGE: ghcr.io/wzyu26/lobehub-canary-qq
       CLAUDE_CODE_VERSION: 2.1.301
     steps:
@@ -72,7 +72,7 @@ jobs:
               test "${version%% *}" = "$CLAUDE_CODE_VERSION"
               docker run --rm --network none --read-only --cap-drop ALL \
                 --security-opt no-new-privileges:true --entrypoint bun "$reference" \
-                /app/smokeWorkerStartup.mjs /app/worker.js
+                --no-install /app/smokeWorkerStartup.mjs /app/worker.js
               printf 'Worker CLI version verified: `%s`.\n\n' "$version" >> "$GITHUB_STEP_SUMMARY"
             else
               help=$(docker run --rm --network none --read-only --cap-drop ALL \
