@@ -138,16 +138,16 @@ index 0000000000..81cbb887dd
 +随后恢复事先记录的旧主应用镜像。保留聊天数据、新增表、每位用户的四个卷和服务凭据文件；不要运行 `down --volumes`，不要删除 state 来“重试”模型。恢复新版本时先接收旧事件并将未收尾任务标为中断，再开放新任务。已经提交的写工具只取原回执，不重新执行。
 diff --git a/apps/claude-code-worker/Dockerfile b/apps/claude-code-worker/Dockerfile
 new file mode 100644
-index 0000000000..0adc81bd70
+index 0000000000..f5c8aa92cf
 --- /dev/null
 +++ b/apps/claude-code-worker/Dockerfile
-@@ -0,0 +1,51 @@
+@@ -0,0 +1,56 @@
 +# Build from the repository root. Pin the official CLI independently of the app.
 +FROM oven/bun:1.4.4-debian AS build
 +WORKDIR /app
 +COPY . .
 +RUN bun install --ignore-scripts && \
-+    bun build apps/claude-code-worker/src/index.ts --target=bun --outdir=/worker && \
++    bun apps/claude-code-worker/scripts/buildWorker.mjs /worker && \
 +    bun build apps/claude-code-worker/admin/index.ts --target=bun --outfile=/admin/admin.js
 +
 +# One-shot administration only. No CLI, worker, app environment, or stored DB URL.
@@ -179,6 +179,8 @@ index 0000000000..0adc81bd70
 +# Preserve the official install.cjs-selected native binary and npm bin link.
 +COPY --from=claude /usr/local /usr/local
 +COPY --from=build /worker/index.js /app/worker.js
++COPY --from=build /worker/node_modules /app/node_modules
++COPY --from=build /app/apps/claude-code-worker/scripts/smokeWorkerStartup.mjs /app/smokeWorkerStartup.mjs
 +ENV CLAUDE_CODE_COMMAND=/usr/local/bin/claude \
 +    CLAUDE_CODE_VERSION=${CLAUDE_CODE_VERSION} \
 +    LOBEHUB_BUILD_REVISION=${LOBEHUB_BUILD_REVISION} \
@@ -190,6 +192,9 @@ index 0000000000..0adc81bd70
 +      com.lobehub.claude-code.version=${CLAUDE_CODE_VERSION}
 +USER 10001:10001
 +WORKDIR /workspace
++# Run the final image's actual entrypoint with no credentials. This must reach
++# the expected configuration error, not crash while importing MCP/Zod modules.
++RUN bun /app/smokeWorkerStartup.mjs /app/worker.js
 +VOLUME ["/home/claude", "/home/claude/.claude", "/workspace", "/state"]
 +ENTRYPOINT ["/usr/bin/tini", "--"]
 +CMD ["bun", "/app/worker.js"]
@@ -267,6 +272,67 @@ index 0000000000..c67052951a
 +The local tests cover protocol, isolation and recovery boundaries. Live official
 +login, two-user isolation, browser/mobile interactions, and Docker resource
 +limits require the staged deployment acceptance suite before enabling users.
+diff --git a/apps/claude-code-worker/__tests__/startup.integration.test.ts b/apps/claude-code-worker/__tests__/startup.integration.test.ts
+new file mode 100644
+index 0000000000..b9a3c4fd52
+--- /dev/null
++++ b/apps/claude-code-worker/__tests__/startup.integration.test.ts
+@@ -0,0 +1,55 @@
++import { spawnSync } from 'node:child_process';
++import { cp, mkdtemp, readFile, rm } from 'node:fs/promises';
++import { tmpdir } from 'node:os';
++import path from 'node:path';
++import { fileURLToPath } from 'node:url';
++
++import { afterEach, describe, expect, it } from 'vitest';
++
++const workerRoot = fileURLToPath(new URL('../', import.meta.url));
++const bun = process.env.BUN_EXECUTABLE ?? 'bun';
++const temporaryDirectories: string[] = [];
++const temporaryDirectory = async () => {
++  const directory = await mkdtemp(path.join(tmpdir(), 'claude-worker-startup-'));
++  temporaryDirectories.push(directory);
++  return directory;
++};
++afterEach(async () => {
++  for (const directory of temporaryDirectories.splice(0)) {
++    // Only remove the exact absolute mkdtemp directories created by this test.
++    if (!path.isAbsolute(directory) || path.dirname(directory) !== path.resolve(tmpdir()) ||
++        !path.basename(directory).startsWith('claude-worker-startup-')) {
++      throw new Error('Unexpected startup test cleanup path');
++    }
++    await rm(directory, { force: true, recursive: true });
++  }
++});
++
++describe('built worker initialization outside the source workspace', () => {
++  it('ships Zod and reaches safe configuration validation without credentials', async () => {
++    const directory = await temporaryDirectory();
++    const built = spawnSync(bun, [path.join(workerRoot, 'scripts/buildWorker.mjs'), directory], {
++      cwd: workerRoot, encoding: 'utf8', timeout: 30_000,
++    });
++    expect(built.error).toBeUndefined();
++    expect(built.status, built.stderr).toBe(0);
++    const runtime = JSON.parse(await readFile(path.join(directory, 'node_modules/zod/package.json'), 'utf8'));
++    expect(runtime.name).toBe('zod');
++    const started = spawnSync(bun, [path.join(directory, 'index.js')], {
++      cwd: directory, encoding: 'utf8', env: {}, timeout: 15_000,
++    });
++    expect(started.status, started.stderr).toBe(1);
++    expect(started.stdout).toBe('');
++    expect(started.stderr.trim()).toBe('Claude Code worker could not start; check its deployment configuration');
++
++    // The smoke must also detect a packaging regression where Docker copies
++    // only index.js and silently omits the external runtime dependency.
++    const missingRuntime = await temporaryDirectory();
++    await cp(path.join(directory, 'index.js'), path.join(missingRuntime, 'index.js'));
++    const incomplete = spawnSync(bun, [
++      path.join(workerRoot, 'scripts/smokeWorkerStartup.mjs'), path.join(missingRuntime, 'index.js'),
++    ], { cwd: missingRuntime, encoding: 'utf8', timeout: 15_000 });
++    expect(incomplete.status).not.toBe(0);
++    expect(incomplete.stderr).toContain('Worker module startup failed before safe configuration validation');
++  }, 60_000);
++});
 diff --git a/apps/claude-code-worker/admin/database.test.ts b/apps/claude-code-worker/admin/database.test.ts
 new file mode 100644
 index 0000000000..54f0dc06a5
@@ -650,7 +716,7 @@ index 0000000000..7b08382e95
 +  state: {}
 diff --git a/apps/claude-code-worker/package.json b/apps/claude-code-worker/package.json
 new file mode 100644
-index 0000000000..3955205879
+index 0000000000..037f529490
 --- /dev/null
 +++ b/apps/claude-code-worker/package.json
 @@ -0,0 +1,21 @@
@@ -663,7 +729,7 @@ index 0000000000..3955205879
 +    "admin": "bun dist/admin.js",
 +    "build": "bun run build:worker && bun run build:admin",
 +    "build:admin": "bun build admin/index.ts --target=bun --outfile=dist/admin.js",
-+    "build:worker": "bun build src/index.ts --target=bun --outdir=dist",
++    "build:worker": "bun scripts/buildWorker.mjs",
 +    "start": "bun dist/index.js",
 +    "test": "vitest run"
 +  },
@@ -674,6 +740,76 @@ index 0000000000..3955205879
 +    "drizzle-orm": "^0.45.2",
 +    "pg": "^8.23.0"
 +  }
++}
+diff --git a/apps/claude-code-worker/scripts/buildWorker.mjs b/apps/claude-code-worker/scripts/buildWorker.mjs
+new file mode 100644
+index 0000000000..4a5ef06f37
+--- /dev/null
++++ b/apps/claude-code-worker/scripts/buildWorker.mjs
+@@ -0,0 +1,28 @@
++import { spawnSync } from 'node:child_process';
++import { cp, mkdir, realpath } from 'node:fs/promises';
++import { createRequire } from 'node:module';
++import path from 'node:path';
++import { fileURLToPath } from 'node:url';
++
++import { assertWorkerStartup } from './smokeWorkerStartup.mjs';
++
++const workerRoot = fileURLToPath(new URL('../', import.meta.url));
++const outputDirectory = path.resolve(process.argv[2] ?? path.join(workerRoot, 'dist'));
++// Bun 1.4.4 can evaluate the MCP schema module before bundled Zod constructors
++// initialize. Keep Zod's own ESM boundaries and ship the installed package.
++const built = spawnSync(process.execPath, [
++  'build', path.join(workerRoot, 'src/index.ts'), '--target=bun', '--external=zod',
++  `--outdir=${outputDirectory}`,
++], { cwd: workerRoot, stdio: 'inherit' });
++if (built.error || built.status !== 0) throw new Error('Worker bundle build failed');
++
++const require = createRequire(import.meta.url);
++const zodDirectory = path.dirname(await realpath(require.resolve('zod/package.json')));
++await mkdir(path.join(outputDirectory, 'node_modules'), { recursive: true });
++await cp(zodDirectory, path.join(outputDirectory, 'node_modules/zod'), {
++  dereference: true,
++  force: true,
++  recursive: true,
++});
++assertWorkerStartup(path.join(outputDirectory, 'index.js'));
++console.info('Worker bundle and runtime dependency startup verified');
+diff --git a/apps/claude-code-worker/scripts/smokeWorkerStartup.mjs b/apps/claude-code-worker/scripts/smokeWorkerStartup.mjs
+new file mode 100644
+index 0000000000..0c0d74a7e4
+--- /dev/null
++++ b/apps/claude-code-worker/scripts/smokeWorkerStartup.mjs
+@@ -0,0 +1,30 @@
++import { spawnSync } from 'node:child_process';
++import path from 'node:path';
++import { fileURLToPath } from 'node:url';
++
++const configurationError = 'Claude Code worker could not start; check its deployment configuration';
++
++/** Execute all top-level imports, then require the safe missing-config failure.
++ * A successful CLI --version or an existing bundle does not test this path. */
++export const assertWorkerStartup = (entrypoint, executable = process.execPath) => {
++  const absoluteEntrypoint = path.resolve(entrypoint);
++  const result = spawnSync(executable, [absoluteEntrypoint], {
++    cwd: path.dirname(absoluteEntrypoint),
++    encoding: 'utf8',
++    // Never inherit service tokens, Claude credentials or network configuration.
++    env: process.platform === 'win32' && process.env.SystemRoot
++      ? { SystemRoot: process.env.SystemRoot }
++      : {},
++    timeout: 15_000,
++  });
++  if (result.error || result.status !== 1 || result.stdout.trim() !== '' ||
++      result.stderr.trim() !== configurationError) {
++    throw new Error(`Worker module startup failed before safe configuration validation\n${result.stderr ?? ''}`);
++  }
++};
++
++if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
++  if (!process.argv[2]) throw new Error('Pass the built worker entrypoint');
++  assertWorkerStartup(process.argv[2]);
++  console.info('Worker module startup smoke passed');
 +}
 diff --git a/apps/claude-code-worker/src/api.test.ts b/apps/claude-code-worker/src/api.test.ts
 new file mode 100644
@@ -2674,7 +2810,7 @@ index 0000000000..5f75d3b3b2
 +};
 diff --git a/apps/claude-code-worker/tsconfig.json b/apps/claude-code-worker/tsconfig.json
 new file mode 100644
-index 0000000000..12efb0d832
+index 0000000000..498ae2d26d
 --- /dev/null
 +++ b/apps/claude-code-worker/tsconfig.json
 @@ -0,0 +1,6 @@
@@ -2682,18 +2818,63 @@ index 0000000000..12efb0d832
 +  "compilerOptions": { "incremental": false, "types": ["node", "vitest/globals"] },
 +  "exclude": ["node_modules", "dist"],
 +  "extends": "../../tsconfig.json",
-+  "include": ["src/**/*.ts", "admin/**/*.ts"]
++  "include": ["src/**/*.ts", "admin/**/*.ts", "__tests__/**/*.ts"]
 +}
 diff --git a/apps/claude-code-worker/vitest.config.ts b/apps/claude-code-worker/vitest.config.ts
 new file mode 100644
-index 0000000000..0388dab58c
+index 0000000000..35fe706c46
 --- /dev/null
 +++ b/apps/claude-code-worker/vitest.config.ts
-@@ -0,0 +1,5 @@
+@@ -0,0 +1,8 @@
 +import { defineConfig } from 'vitest/config';
 +
 +export default defineConfig({
-+  test: { environment: 'node', include: ['src/**/*.test.ts', 'admin/**/*.test.ts'] },
++  test: {
++    environment: 'node',
++    include: ['src/**/*.test.ts', 'admin/**/*.test.ts', '__tests__/**/*.test.ts'],
++  },
++});
+diff --git a/apps/server/src/globalConfig/__tests__/claudeCodeCatalog.integration.test.ts b/apps/server/src/globalConfig/__tests__/claudeCodeCatalog.integration.test.ts
+new file mode 100644
+index 0000000000..6de6cf3330
+--- /dev/null
++++ b/apps/server/src/globalConfig/__tests__/claudeCodeCatalog.integration.test.ts
+@@ -0,0 +1,36 @@
++import { DEFAULT_LLM_CONFIG } from '@lobechat/business-config';
++import * as modelBank from 'model-bank';
++import { DEFAULT_MODEL_PROVIDER_LIST } from 'model-bank/modelProviders';
++import { afterEach, describe, expect, it, vi } from 'vitest';
++
++import { genServerAiProvidersConfig } from '../genServerAiProviderConfig';
++import { getServerGlobalConfig } from '../index';
++
++afterEach(() => vi.unstubAllEnvs());
++
++describe('Claude Code registration in the production provider catalog', () => {
++  it('initializes global configuration with the worker feature disabled and the real catalog', async () => {
++    vi.stubEnv('CLAUDE_CODE_SERVER_ENABLED', '0');
++    vi.stubEnv('OPENAI_MODEL_LIST', modelBank.openai[0].id);
++    const config = await getServerGlobalConfig();
++
++    expect(config.aiProvider.openai.serverModelLists?.length).toBeGreaterThan(0);
++    expect(config.aiProvider).toHaveProperty('anthropic');
++    expect(modelBank.anthropic.length).toBeGreaterThan(0);
++    expect(config.aiProvider['claude-code'].serverModelLists ?? []).toEqual([]);
++    expect(config.aiProvider['claude-code'].enabled).not.toBe(true);
++  });
++
++  it('resolves every registered provider without inventing API settings or static worker models', async () => {
++    const config = await genServerAiProvidersConfig({ openai: { enabled: true } });
++    expect(config.openai.enabled).toBe(true);
++    expect(config['claude-code'].serverModelLists ?? []).toEqual([]);
++    expect((modelBank as Record<string, unknown>)['claude-code']).toEqual([]);
++    expect(
++      modelBank.LOBE_DEFAULT_MODEL_LIST.some(({ providerId }) => providerId === 'claude-code'),
++    ).toBe(false);
++    expect(DEFAULT_MODEL_PROVIDER_LIST.some(({ id }) => id === 'claude-code')).toBe(false);
++    expect(DEFAULT_LLM_CONFIG).not.toHaveProperty('claude-code');
++    expect(DEFAULT_LLM_CONFIG.openai.enabled).toBe(true);
++  });
 +});
 diff --git a/apps/server/src/modules/AgentRuntime/GatewayStreamNotifier.ts b/apps/server/src/modules/AgentRuntime/GatewayStreamNotifier.ts
 index 1b9d2f42a8..a8375bf6ee 100644
@@ -62866,6 +63047,45 @@ index 1184e801cb..c0217f396a 100644
      "./ai21": "./src/aiModels/ai21.ts",
      "./ai302": "./src/aiModels/ai302.ts",
      "./ai360": "./src/aiModels/ai360.ts",
+diff --git a/packages/model-bank/src/aiModels/claudeCode.ts b/packages/model-bank/src/aiModels/claudeCode.ts
+new file mode 100644
+index 0000000000..fb42e43ab4
+--- /dev/null
++++ b/packages/model-bank/src/aiModels/claudeCode.ts
+@@ -0,0 +1,5 @@
++import type { AiFullModelCard } from '../types/aiModel';
++
++// The worker supplies per-account CLI models. The global provider registry must
++// still resolve this backend while it is disabled, without advertising API models.
++export const claudeCodeModels: AiFullModelCard[] = [];
+diff --git a/packages/model-bank/src/aiModels/index.ts b/packages/model-bank/src/aiModels/index.ts
+index 85ce130009..b8b8cf6c7c 100644
+--- a/packages/model-bank/src/aiModels/index.ts
++++ b/packages/model-bank/src/aiModels/index.ts
+@@ -16,6 +16,7 @@ import { default as bedrock } from './bedrock';
+ import { default as bfl } from './bfl';
+ import { default as cerebras } from './cerebras';
+ import { default as chatgpt } from './chatGPT';
++import { claudeCodeModels } from './claudeCode';
+ import { default as cloudflare } from './cloudflare';
+ import { default as cohere } from './cohere';
+ import { default as cometapi } from './cometapi';
+@@ -130,6 +131,7 @@ const staticModelMap: ModelsMap = {
+   bfl,
+   cerebras,
+   chatgpt,
++  'claude-code': claudeCodeModels,
+   cloudflare,
+   cohere,
+   cometapi,
+@@ -250,6 +252,7 @@ export { default as bedrock } from './bedrock';
+ export { default as bfl } from './bfl';
+ export { default as cerebras } from './cerebras';
+ export { default as chatgpt } from './chatGPT';
++export { claudeCodeModels as 'claude-code' } from './claudeCode';
+ export { default as cloudflare } from './cloudflare';
+ export { default as cohere } from './cohere';
+ export { default as cometapi } from './cometapi';
 diff --git a/packages/model-bank/src/const/modelProvider.ts b/packages/model-bank/src/const/modelProvider.ts
 index e8922d9d6a..c4691402a3 100644
 --- a/packages/model-bank/src/const/modelProvider.ts

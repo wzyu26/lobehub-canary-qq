@@ -8,6 +8,7 @@ on:
       - '.github/workflows/claude-code-candidate.yml'
       - 'claude-code-baseline.json'
       - 'scripts/prepare-claude-code.py'
+      - 'scripts/smoke-claude-code-app.mjs'
       - 'patches/claude-code-server.patch'
 
 concurrency:
@@ -55,7 +56,7 @@ jobs:
         working-directory: source
         run: |
           pnpm exec tsgo --noEmit -p tsconfig.type-check.json
-          pnpm exec vitest run apps/server/src/services/claudeCode apps/server/src/router-hono/claude-code apps/server/src/services/agentRuntime/__tests__/StaleOperationReaper.test.ts apps/server/src/services/agentRuntime/AgentRuntimeService/__tests__/interrupt.test.ts
+          pnpm exec vitest run apps/server/src/services/claudeCode apps/server/src/router-hono/claude-code apps/server/src/globalConfig/__tests__/claudeCodeCatalog.integration.test.ts apps/server/src/services/agentRuntime/__tests__/StaleOperationReaper.test.ts apps/server/src/services/agentRuntime/AgentRuntimeService/__tests__/interrupt.test.ts
       - name: Ordinary assistant routing and model entry
         working-directory: source
         run: pnpm exec vitest run src/store/chat/slices/agentRun/actions/__tests__/claudeCodeRouting.test.ts src/store/chat/slices/agentRun/actions/dispatch/resolveAssistantTransport.test.ts src/hooks/claudeCodeModels.test.ts src/hooks/useClaudeCodeModels.test.ts apps/server/src/services/aiAgent/pipeline/turnSetup.claudeCode.test.ts apps/server/src/services/agentRuntime/CompletionLifecycle/index.backgroundDb.test.ts
@@ -149,10 +150,30 @@ jobs:
           case "$COMPONENT" in
             app)
               docker run --rm --entrypoint /bin/node "$IMAGE@$DIGEST" -e "const fs=require('fs'); for(const p of ['/app/startServer.js','/app/server.js','/app/migrations']) if(!fs.existsSync(p)) throw new Error('Missing '+p)"
+              container_id=''
+              trap 'if [[ -n "$container_id" ]]; then docker rm -f "$container_id" >/dev/null 2>&1 || true; fi' EXIT
+              # VERCEL_ENV skips background DB recovery/gateway startup only.
+              # The standalone server and public catalog still run in production mode.
+              container_id=$(docker create --network none --entrypoint /bin/node \
+                --cap-drop ALL --security-opt no-new-privileges:true \
+                --env NODE_ENV=production --env VERCEL_ENV=preview \
+                --env HOSTNAME=127.0.0.1 --env PORT=3210 \
+                --env APP_URL=http://127.0.0.1:3210 \
+                --env DATABASE_DRIVER=node --env DATABASE_URL=postgres://ci:ci@127.0.0.1:1/ci \
+                --env DATABASE_STATEMENT_TIMEOUT=1000 \
+                --env KEY_VAULTS_SECRET=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \
+                --env AUTH_SECRET=ci-only-runtime-auth-secret-00000000000000000000000000000000 \
+                --env AUTH_SSO_PROVIDERS= --env JWKS_KEY= --env REDIS_URL= \
+                --env VERCEL_EDGE_CONFIG= --env ENABLE_TELEMETRY= \
+                --env NEXT_TELEMETRY_DISABLED=1 --env CLAUDE_CODE_SERVER_ENABLED=0 \
+                "$IMAGE@$DIGEST" /app/server.js)
+              docker cp config/scripts/smoke-claude-code-app.mjs "$container_id:/app/smoke-claude-code-app.mjs"
+              docker start "$container_id" >/dev/null
+              docker exec "$container_id" /bin/node /app/smoke-claude-code-app.mjs
               ;;
             worker)
-              docker run --rm --entrypoint /usr/local/bin/claude "$IMAGE@$DIGEST" --version
-              docker run --rm --entrypoint bun "$IMAGE@$DIGEST" -e "if(!require('fs').existsSync('/app/worker.js')) throw new Error('Missing worker')"
+              docker run --rm --network none --entrypoint /usr/local/bin/claude "$IMAGE@$DIGEST" --version
+              docker run --rm --network none --entrypoint bun "$IMAGE@$DIGEST" /app/smokeWorkerStartup.mjs /app/worker.js
               ;;
             admin)
               docker run --rm "$IMAGE@$DIGEST" --help
