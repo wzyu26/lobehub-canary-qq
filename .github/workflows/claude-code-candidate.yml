@@ -159,6 +159,7 @@ jobs:
                 --env NODE_ENV=production --env VERCEL_ENV=preview \
                 --env HOSTNAME=127.0.0.1 --env PORT=3210 \
                 --env APP_URL=http://127.0.0.1:3210 \
+                --env S3_ENDPOINT=http://127.0.0.1:1 \
                 --env DATABASE_DRIVER=node --env DATABASE_URL=postgres://ci:ci@127.0.0.1:1/ci \
                 --env DATABASE_STATEMENT_TIMEOUT=1000 \
                 --env KEY_VAULTS_SECRET=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \
