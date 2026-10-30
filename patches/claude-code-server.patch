@@ -5090,10 +5090,10 @@ index 0000000000..f39f203bf7
 +});
 diff --git a/apps/server/src/services/claudeCode/__tests__/finish.integration.test.ts b/apps/server/src/services/claudeCode/__tests__/finish.integration.test.ts
 new file mode 100644
-index 0000000000..c9ec81ecab
+index 0000000000..83968f0f5f
 --- /dev/null
 +++ b/apps/server/src/services/claudeCode/__tests__/finish.integration.test.ts
-@@ -0,0 +1,193 @@
+@@ -0,0 +1,213 @@
 +import { parse } from '@lobechat/conversation-flow';
 +import { eq } from 'drizzle-orm';
 +import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -5219,6 +5219,26 @@ index 0000000000..c9ec81ecab
 +      expect.objectContaining({ status: 'interrupted' }),
 +      'interrupted',
 +    );
++  });
++
++  it('shows a failure on the assistant message when the worker dies mid-turn', async () => {
++    const { scope, assistantMessageId } = await running();
++    await db
++      .update(claudeCodeRuns)
++      .set({ leaseExpiresAt: new Date(Date.now() - 1000) })
++      .where(eq(claudeCodeRuns.operationId, scope.operationId));
++    await ClaudeCodeModel.interruptStaleRuns(db);
++    await settleClaudeCodeRun(scope);
++    const message = await new MessageModel(db, owner).findById(assistantMessageId);
++    expect(message?.error).toMatchObject({ type: 'AgentRuntimeError' });
++  });
++
++  it('leaves a cancelled turn without a failure', async () => {
++    const { scope, assistantMessageId } = await running();
++    await model().cancelRun(scope.operationId);
++    await finishClaudeCodeRun({ ...scope, leaseToken, status: 'cancelled' });
++    const message = await new MessageModel(db, owner).findById(assistantMessageId);
++    expect(message?.error).toBeFalsy();
 +  });
 +
 +  it('archives post-crash tail events without reviving the interrupted run', async () => {
@@ -6914,10 +6934,10 @@ index 0000000000..88f3078068
 +};
 diff --git a/apps/server/src/services/claudeCode/finish.ts b/apps/server/src/services/claudeCode/finish.ts
 new file mode 100644
-index 0000000000..3891a0bb91
+index 0000000000..9204ab23cf
 --- /dev/null
 +++ b/apps/server/src/services/claudeCode/finish.ts
-@@ -0,0 +1,128 @@
+@@ -0,0 +1,138 @@
 +import type { AgentState } from '@lobechat/agent-runtime';
 +import { parse } from '@lobechat/conversation-flow';
 +import superjson from 'superjson';
@@ -6934,6 +6954,9 @@ index 0000000000..3891a0bb91
 +  drainClaudeCodeEvents,
 +  restoreClaudeCodeProjection,
 +} from './projectEvents';
++
++const INTERRUPTED_MESSAGE =
++  'The server Claude Code worker stopped before this turn finished. It was not retried; send the message again to continue.';
 +
 +/** Reconcile a terminal queue record with the ordinary operation/message lifecycle.
 + * This is also called by the heartbeat sweeper after a worker lease expires. */
@@ -6964,6 +6987,13 @@ index 0000000000..3891a0bb91
 +      scope.userId,
 +      scope.workspaceId,
 +    );
++    // The client keys its failure banner off `message.error`; a cancelled turn has its own state.
++    if (current.status === 'interrupted' && assistantMessageId) {
++      const message = current.error ?? INTERRUPTED_MESSAGE;
++      await messages.update(assistantMessageId, {
++        error: { body: { message }, message, type: 'AgentRuntimeError' },
++      });
++    }
 +    const history = await messages.query({
 +      agentId: state.origin?.agentId,
 +      groupId: state.origin?.groupId,
