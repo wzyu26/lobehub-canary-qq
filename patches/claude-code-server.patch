@@ -9418,6 +9418,72 @@ index 394e697fc8..f061b0a1c7 100644
    threadModel: ThreadModel;
    topicModel: TopicModel;
    userId?: string;
+diff --git a/apps/server/src/services/memory/userMemory/__tests__/extract.workflow.test.ts b/apps/server/src/services/memory/userMemory/__tests__/extract.workflow.test.ts
+index 4ec44df01d..1fad49cead 100644
+--- a/apps/server/src/services/memory/userMemory/__tests__/extract.workflow.test.ts
++++ b/apps/server/src/services/memory/userMemory/__tests__/extract.workflow.test.ts
+@@ -65,6 +65,20 @@ vi.mock('@/libs/qstash', () => ({
+   }),
+ }));
+ 
++describe('MemoryExtractionWorkflowService flow control keys', () => {
++  it('keeps SSO user ids within the characters QStash accepts', async () => {
++    process.env.QSTASH_TOKEN = 'test-qstash-token';
++    mockTrigger.mockResolvedValue({ workflowRunId: 'workflow-run-1' });
++
++    await MemoryExtractionWorkflowService.triggerPersonaUpdate(
++      'auth0|682277',
++      'https://example.com',
++    );
++
++    expect(mockTrigger.mock.lastCall?.[0].flowControl.key).toMatch(/^[\w.-]+$/);
++  });
++});
++
+ describe('MemoryExtractionWorkflowService.triggerHourlyTracked', () => {
+   const originalServiceUserId = process.env.MEMORY_EXTRACTION_HOURLY_TASK_USER_ID;
+   const originalQstashToken = process.env.QSTASH_TOKEN;
+diff --git a/apps/server/src/services/memory/userMemory/extract/workflow.ts b/apps/server/src/services/memory/userMemory/extract/workflow.ts
+index a5a426b968..7689588012 100644
+--- a/apps/server/src/services/memory/userMemory/extract/workflow.ts
++++ b/apps/server/src/services/memory/userMemory/extract/workflow.ts
+@@ -53,6 +53,9 @@ const getProcessUserTopicsFlowControl = (): FlowControl => {
+ const buildHourlyChildWorkflowRunId = (entryWorkflowRunId: string) =>
+   `memory-user-memory-hourly-${entryWorkflowRunId.replaceAll(/[^\w-]/g, '_')}`;
+ 
++// QStash rejects other characters in a flow control key; SSO user ids such as `auth0|123` have them.
++const flowControlUserId = (userId: string) => userId.replaceAll(/[^\w.-]/g, '_');
++
+ const getWorkflowUrl = (path: string, baseUrl: string) => {
+   const url = new URL(path, baseUrl);
+ 
+@@ -247,7 +250,7 @@ export class MemoryExtractionWorkflowService {
+     return this.getClient().trigger({
+       body: payload,
+       flowControl: {
+-        key: `memory-user-memory.pipelines.chat-topic.process-topics.user.${userId}`,
++        key: `memory-user-memory.pipelines.chat-topic.process-topics.user.${flowControlUserId(userId)}`,
+         // NOTICE: Each process-topics workflow currently invokes topic workflows sequentially.
+         // Parallelism 20 therefore bounds each user's active topic extraction workflows to 20.
+         // If process-topics changes back to parallel per-topic invoke, divide this number by
+@@ -276,7 +279,7 @@ export class MemoryExtractionWorkflowService {
+       // monopolize extraction. Serve-side flow control (processTopicWorkflowOptions) additionally
+       // keeps this workflow's own step-continuation messages out of the shared "$" (unbound) bucket.
+       flowControl: {
+-        key: `memory-user-memory.pipelines.chat-topic.process-topic.user.${userId}`,
++        key: `memory-user-memory.pipelines.chat-topic.process-topic.user.${flowControlUserId(userId)}`,
+         parallelism: 5,
+       } satisfies FlowControl,
+       headers: options?.extraHeaders,
+@@ -297,7 +300,7 @@ export class MemoryExtractionWorkflowService {
+     return this.getClient().trigger({
+       body: { hourlyTaskId: options?.hourlyTaskId, userIds: [userId] },
+       flowControl: {
+-        key: `memory-user-memory.pipelines.persona.update-write.${userId}`,
++        key: `memory-user-memory.pipelines.persona.update-write.${flowControlUserId(userId)}`,
+         parallelism: 1,
+       } satisfies FlowControl,
+       headers: options?.extraHeaders,
 diff --git a/docs/development/database-schema.dbml b/docs/development/database-schema.dbml
 index 4b055abab8..8c4974a637 100644
 --- a/docs/development/database-schema.dbml
