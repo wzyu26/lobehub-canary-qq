@@ -36,7 +36,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: lobehub/lobehub
-          ref: 61b639191690f49f618d7b1e3ba555975721a7a5
+          ref: 528ffe89cfe882ac30ec6699e3c46004362985cb
           path: source
           persist-credentials: false
       - run: python3 config/scripts/prepare-claude-code.py source
@@ -111,7 +111,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: lobehub/lobehub
-          ref: 61b639191690f49f618d7b1e3ba555975721a7a5
+          ref: 528ffe89cfe882ac30ec6699e3c46004362985cb
           path: source
           persist-credentials: false
       - run: python3 config/scripts/prepare-claude-code.py source
@@ -135,7 +135,7 @@ jobs:
             CLAUDE_CODE_VERSION=2.1.301
           labels: |
             org.opencontainers.image.revision=${{ github.sha }}
-            io.lobehub.upstream=61b639191690f49f618d7b1e3ba555975721a7a5
+            io.lobehub.upstream=528ffe89cfe882ac30ec6699e3c46004362985cb
             io.lobehub.qq-patch=18187-8d48bcdbd746aa036f0fde9f1ba934cc8ac26a14
           cache-from: type=gha,scope=claude-code-${{ matrix.component }}
           cache-to: type=gha,scope=claude-code-${{ matrix.component }},mode=max,ignore-error=true
