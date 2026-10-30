@@ -27,3 +27,9 @@ Set only the application's Compose image to `ghcr.io/wzyu26/lobehub-canary-qq:ca
 Pull and recreate only the application service. Back up the database and Compose configuration before upgrading. A previous image alone cannot undo database migrations. A real QQ group mention and private message are still required to confirm end-to-end behavior; the smoke check does not contact QQ or the production database.
 
 Builds are automatic; production deployment remains an explicit update operation.
+
+## AI comments
+
+`patches/ai-comments.patch` turns the page editor's selection "Comment" action into "ask the AI about this passage" on personal pages (pages outside a Workspace, where upstream's human comments cannot exist). The AI reads the selection plus its surrounding text and answers in a comment card beside it; follow-ups continue the same thread. Threads are private to their author and stored in their own table, `document_ai_comments` (`patches/ai-comments-migration.sql`), which `scripts/prepare-ai-comments.py` places after the Claude Code migration. The answer uses the same model as the page copilot ("Ask Lobe AI").
+
+A run of the workflow on a branch other than `main` builds and checks run-specific images but never moves the `claude-code*` tags.
