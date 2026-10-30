@@ -104,10 +104,10 @@ index f9ef80cf..98c96e88 100644
    documentLike: documentLikeRouter,
    exporter: exporterRouter,
 diff --git a/locales/en-US/file.json b/locales/en-US/file.json
-index b391c74d..e54cb425 100644
+index b391c74d..3edf61e7 100644
 --- a/locales/en-US/file.json
 +++ b/locales/en-US/file.json
-@@ -281,6 +281,22 @@
+@@ -281,6 +281,23 @@
    "pageEditor.agentUnavailable.noGateway": "The Agent can't edit pages until Gateway Mode is on. Ask your admin to turn it on.",
    "pageEditor.agentUnavailable.sandboxUnconfigured": "The Agent can't edit pages until a sandbox is configured. Ask your admin to set one up.",
    "pageEditor.agentUnavailable.viewDocs": "View docs",
@@ -127,14 +127,15 @@ index b391c74d..e54cb425 100644
 +  "pageEditor.aiComments.stopped": "Stopped.",
 +  "pageEditor.aiComments.thinking": "Thinking…",
 +  "pageEditor.aiComments.title": "AI comments",
++  "pageEditor.aiComments.unanswered": "No answer yet.",
    "pageEditor.artifactTag": "Artifact",
    "pageEditor.autoSaveMessage": "Your page is saved automatically. No need to save manually.",
    "pageEditor.chooseIcon": "Choose Icon",
 diff --git a/locales/zh-CN/file.json b/locales/zh-CN/file.json
-index a52800c2..42d02b69 100644
+index a52800c2..b6e2da9a 100644
 --- a/locales/zh-CN/file.json
 +++ b/locales/zh-CN/file.json
-@@ -281,6 +281,22 @@
+@@ -281,6 +281,23 @@
    "pageEditor.agentUnavailable.noGateway": "开启 Gateway 模式后，Agent 才能编辑页面。请联系管理员开启。",
    "pageEditor.agentUnavailable.sandboxUnconfigured": "配置沙箱后，Agent 才能编辑页面。请联系管理员配置。",
    "pageEditor.agentUnavailable.viewDocs": "查看文档",
@@ -154,6 +155,7 @@ index a52800c2..42d02b69 100644
 +  "pageEditor.aiComments.stopped": "已停止。",
 +  "pageEditor.aiComments.thinking": "思考中…",
 +  "pageEditor.aiComments.title": "AI 评论",
++  "pageEditor.aiComments.unanswered": "还没有回答。",
    "pageEditor.artifactTag": "Artifact",
    "pageEditor.autoSaveMessage": "文稿会自动保存，无需手动保存",
    "pageEditor.chooseIcon": "选择图标",
@@ -373,10 +375,10 @@ index 00000000..1136ff37
 +export type DocumentAiCommentItem = typeof documentAiComments.$inferSelect;
 +export type NewDocumentAiComment = typeof documentAiComments.$inferInsert;
 diff --git a/packages/locales/src/default/file.ts b/packages/locales/src/default/file.ts
-index 9086c9d9..8b843190 100644
+index 9086c9d9..3e3a4db2 100644
 --- a/packages/locales/src/default/file.ts
 +++ b/packages/locales/src/default/file.ts
-@@ -320,6 +320,24 @@ export default {
+@@ -320,6 +320,25 @@ export default {
    'pageEditor.artifactTag': 'Artifact',
    'pageEditor.autoSaveMessage': 'Your page is saved automatically. No need to save manually.',
    'pageEditor.chooseIcon': 'Choose Icon',
@@ -398,6 +400,7 @@ index 9086c9d9..8b843190 100644
 +  'pageEditor.aiComments.stopped': 'Stopped.',
 +  'pageEditor.aiComments.thinking': 'Thinking…',
 +  'pageEditor.aiComments.title': 'AI comments',
++  'pageEditor.aiComments.unanswered': 'No answer yet.',
    'pageEditor.collab.notSynced':
      'Your latest page edits are still syncing, so the Agent may not see them yet.',
    'pageEditor.collab.offlineRestore.content':
@@ -697,10 +700,10 @@ index 00000000..4c2f0d28
 +export default AICommentsPanel;
 diff --git a/src/features/PageEditor/AIComments/ThreadCard.tsx b/src/features/PageEditor/AIComments/ThreadCard.tsx
 new file mode 100644
-index 00000000..fd3ba826
+index 00000000..73b8b39c
 --- /dev/null
 +++ b/src/features/PageEditor/AIComments/ThreadCard.tsx
-@@ -0,0 +1,112 @@
+@@ -0,0 +1,124 @@
 +'use client';
 +
 +import { DEFAULT_INBOX_AVATAR } from '@lobechat/const';
@@ -790,6 +793,17 @@ index 00000000..fd3ba826
 +            </Flexbox>
 +          ),
 +        )}
++        {/* The page was closed before the answer arrived: offer to ask again. */}
++        {!streaming && last?.role === 'user' && (
++          <Flexbox horizontal align={'center'} gap={8}>
++            <Text style={aiStyles.meta} type={'secondary'}>
++              {t('pageEditor.aiComments.unanswered')}
++            </Text>
++            <Button size={'small'} onClick={onRetry}>
++              {t('pageEditor.aiComments.retry')}
++            </Button>
++          </Flexbox>
++        )}
 +        {streaming ? (
 +          <Flexbox horizontal justify={'flex-end'}>
 +            <Button icon={<Square size={12} />} size={'small'} onClick={onStop}>
@@ -798,7 +812,8 @@ index 00000000..fd3ba826
 +          </Flexbox>
 +        ) : (
 +          active &&
-+          !last?.error && (
++          last?.role === 'assistant' &&
++          !last.error && (
 +            <AskComposer
 +              placeholder={t('pageEditor.aiComments.replyPlaceholder')}
 +              onSubmit={onFollowUp}
