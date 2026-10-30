@@ -2219,10 +2219,10 @@ index 0000000000..c1422783b4
 +});
 diff --git a/apps/claude-code-worker/src/runner.ts b/apps/claude-code-worker/src/runner.ts
 new file mode 100644
-index 0000000000..8221f14697
+index 0000000000..b804f4ba95
 --- /dev/null
 +++ b/apps/claude-code-worker/src/runner.ts
-@@ -0,0 +1,227 @@
+@@ -0,0 +1,228 @@
 +import { randomUUID } from 'node:crypto';
 +import { mkdir, rm, writeFile } from 'node:fs/promises';
 +import path from 'node:path';
@@ -2385,6 +2385,7 @@ index 0000000000..8221f14697
 +      }),
 +    ];
 +    if (claim.request.model !== 'default') extraArgs.push('--model', claim.request.model);
++    if (claim.request.effort) extraArgs.push('--effort', claim.request.effort);
 +    // Every LobeHub turn supplies its complete prepared context to a fresh CLI
 +    // session. Only the user's official login and workspace files persist.
 +    if (claim.request.systemPrompt) {
@@ -3838,6 +3839,44 @@ index 9079888958..6459e84f70 100644
        // Cloud overrides this as an atomic first-winner claim shared by Web and
        // Mobile. OSS returns `handled:false` and preserves the legacy stream
        // publish below. A claimed response is authoritative: client-supplied
+diff --git a/apps/server/src/routers/lambda/aiProvider.ts b/apps/server/src/routers/lambda/aiProvider.ts
+index c8036c4e64..8cdf855897 100644
+--- a/apps/server/src/routers/lambda/aiProvider.ts
++++ b/apps/server/src/routers/lambda/aiProvider.ts
+@@ -24,6 +24,8 @@ import { getServerGlobalConfig } from '@/server/globalConfig';
+ import { initModelRuntimeForRequest } from '@/server/modules/AgentRuntime/llmRelay/oneShot';
+ import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
+ import { getUserScopedAiProviderRuntimeState } from '@/server/services/aiProviderAccess';
++import { withClaudeCodeModels } from '@/server/services/claudeCode/runtimeState';
++import { getClaudeCodeStatus } from '@/server/services/claudeCode/status';
+ import { type AiProviderDetailItem, type AiProviderRuntimeState } from '@/types/aiProvider';
+ import {
+   CreateAiProviderSchema,
+@@ -185,15 +187,22 @@ export const aiProviderRouter = router({
+   getAiProviderRuntimeState: aiProviderProcedure
+     .input(z.object({ isLogin: z.boolean().optional() }))
+     .query(async ({ ctx }): Promise<AiProviderRuntimeState> => {
+-      const [scopedState, modelReasoningConfigs] = await Promise.all([
++      const [scopedState, modelReasoningConfigs, claudeCode] = await Promise.all([
+         getUserScopedAiProviderRuntimeState(ctx.userId, () =>
+           ctx.aiInfraRepos.getAiProviderRuntimeState(KeyVaultsGateKeeper.getUserKeyVaults),
+         ),
+         // Loaded here rather than in the shared runtime-state loader: only the
+         // client model list needs it, and server-side callers skip the query
+         ctx.aiModelModel.getAllModelReasoningConfigs(),
++        // A worker problem must not take the account's other models down with it.
++        getClaudeCodeStatus(ctx.serverDB, ctx.userId, ctx.workspaceId ?? undefined).catch(
++          () => undefined,
++        ),
+       ]);
+-      const state = { ...scopedState, modelReasoningConfigs };
++      const state = {
++        ...(claudeCode ? withClaudeCodeModels(scopedState, claudeCode) : scopedState),
++        modelReasoningConfigs,
++      };
+       const providerBindingAgentTypes = resolveProviderBindingAgentTypes(state);
+ 
+       // restricted API keys must not exfiltrate decrypted provider credentials
 diff --git a/apps/server/src/routers/lambda/claudeCode.ts b/apps/server/src/routers/lambda/claudeCode.ts
 new file mode 100644
 index 0000000000..07ee7272b8
@@ -7662,14 +7701,15 @@ index 0000000000..33e814a6f5
 +};
 diff --git a/apps/server/src/services/claudeCode/prepareClaim.ts b/apps/server/src/services/claudeCode/prepareClaim.ts
 new file mode 100644
-index 0000000000..6ea20fefdf
+index 0000000000..99e2711e8e
 --- /dev/null
 +++ b/apps/server/src/services/claudeCode/prepareClaim.ts
-@@ -0,0 +1,274 @@
+@@ -0,0 +1,283 @@
 +import type { AgentState } from '@lobechat/agent-runtime';
 +import type { AgentRunInitRequest } from '@lobechat/types';
 +import { isDeviceOnlyMcpEndpoint } from '@lobechat/utils/mcpEndpoint';
 +
++import { AiModelModel } from '@/database/models/aiModel';
 +import { ClaudeCodeModel } from '@/database/models/claudeCode';
 +import { MessageModel } from '@/database/models/message';
 +import { TopicModel } from '@/database/models/topic';
@@ -7907,8 +7947,16 @@ index 0000000000..6ea20fefdf
 +    new ServerContextBuilder(executorContext),
 +    freshState,
 +  );
++  // The same per-model reasoning setting the composer saves for API models. Read at claim
++  // time, like the rest of the context, so a change made while queued still applies.
++  const { opus47Effort: effort } =
++    (await new AiModelModel(db, userId, workspaceId).getModelReasoningConfig(
++      freshState.modelRuntimeConfig!.model,
++      'claude-code',
++    )) ?? {};
 +  const prepared = prepareClaudeCodeContext({
 +    context,
++    effort,
 +    state: freshState,
 +    isServerTool: (identifier, _apiName, type) => {
 +      if (type === 'mcp') {
@@ -7942,10 +7990,10 @@ index 0000000000..6ea20fefdf
 +};
 diff --git a/apps/server/src/services/claudeCode/prepareContext.test.ts b/apps/server/src/services/claudeCode/prepareContext.test.ts
 new file mode 100644
-index 0000000000..610b61ab86
+index 0000000000..19706fa3f5
 --- /dev/null
 +++ b/apps/server/src/services/claudeCode/prepareContext.test.ts
-@@ -0,0 +1,218 @@
+@@ -0,0 +1,224 @@
 +import type { AgentState, ContextBuildOutput } from '@lobechat/agent-runtime';
 +import { CanvasManifest } from '@lobechat/builtin-tool-canvas';
 +import { ToolNameResolver } from '@lobechat/context-engine';
@@ -8074,6 +8122,12 @@ index 0000000000..610b61ab86
 +    expect(new Set(request.tools.map((tool) => tool.name)).size).toBe(request.tools.length);
 +  });
 +
++  it('sends the saved effort only when one is set', () => {
++    const base = { context: makeContext(), isServerTool: () => true, state: makeState() };
++    expect(prepareClaudeCodeContext(base).request).not.toHaveProperty('effort');
++    expect(prepareClaudeCodeContext({ ...base, effort: 'xhigh' }).request.effort).toBe('xhigh');
++  });
++
 +  it('uses current permissions after a tool is disabled', () => {
 +    const state = makeState();
 +    state.world = { disabledPluginIds: ['lobe-notebook'] };
@@ -8166,10 +8220,10 @@ index 0000000000..610b61ab86
 +});
 diff --git a/apps/server/src/services/claudeCode/prepareContext.ts b/apps/server/src/services/claudeCode/prepareContext.ts
 new file mode 100644
-index 0000000000..d41ef6c7de
+index 0000000000..1ec39dfa82
 --- /dev/null
 +++ b/apps/server/src/services/claudeCode/prepareContext.ts
-@@ -0,0 +1,131 @@
+@@ -0,0 +1,134 @@
 +import type { AgentState, ContextBuildOutput } from '@lobechat/agent-runtime';
 +import { ToolNameResolver } from '@lobechat/context-engine';
 +import type {
@@ -8219,10 +8273,12 @@ index 0000000000..d41ef6c7de
 + */
 +export const prepareClaudeCodeContext = ({
 +  context,
++  effort,
 +  isServerTool,
 +  state,
 +}: {
 +  context: ContextBuildOutput;
++  effort?: ClaudeCodeAssistantRequest['effort'];
 +  isServerTool: (identifier: string, apiName: string, type: string) => boolean;
 +  state: AgentState;
 +}): { request: ClaudeCodeAssistantRequest; unavailableTools: string[] } => {
@@ -8292,6 +8348,7 @@ index 0000000000..d41ef6c7de
 +  ]);
 +  return {
 +    request: {
++      ...(effort ? { effort } : {}),
 +      model: state.modelRuntimeConfig?.model ?? 'default',
 +      prompt,
 +      protocol: CLAUDE_CODE_WORKER_PROTOCOL,
@@ -8551,6 +8608,100 @@ index 0000000000..213f6a952a
 +      deactivatedToolIds: state.forceFinish ? ['*'] : undefined,
 +    },
 +  );
++};
+diff --git a/apps/server/src/services/claudeCode/runtimeState.test.ts b/apps/server/src/services/claudeCode/runtimeState.test.ts
+new file mode 100644
+index 0000000000..23da6f3d45
+--- /dev/null
++++ b/apps/server/src/services/claudeCode/runtimeState.test.ts
+@@ -0,0 +1,38 @@
++import { describe, expect, it } from 'vitest';
++
++import type { AiProviderRuntimeState } from '@/types/aiProvider';
++
++import { withClaudeCodeModels } from './runtimeState';
++
++const state = {
++  enabledAiModels: [],
++  enabledAiProviders: [],
++  enabledChatAiProviders: [],
++  enabledImageAiProviders: [],
++  enabledVideoAiProviders: [],
++  runtimeConfig: {},
++} as unknown as AiProviderRuntimeState;
++
++const status = {
++  authStatus: 'logged_in' as const,
++  available: false,
++  enabled: true,
++  models: [{ displayName: 'Default', id: 'default' }],
++};
++
++describe('withClaudeCodeModels', () => {
++  it('keeps an offline worker model selectable, with its effort control', () => {
++    const result = withClaudeCodeModels(state, status);
++    expect(result.enabledChatAiProviders.map(({ id }) => id)).toEqual(['claude-code']);
++    expect(result.enabledAiModels[0]).toMatchObject({
++      id: 'default',
++      providerId: 'claude-code',
++      settings: { extendParams: ['opus47Effort'] },
++      type: 'chat',
++    });
++  });
++
++  it('adds nothing for an account without an enabled worker', () => {
++    expect(withClaudeCodeModels(state, { ...status, enabled: false })).toBe(state);
++  });
++});
+diff --git a/apps/server/src/services/claudeCode/runtimeState.ts b/apps/server/src/services/claudeCode/runtimeState.ts
+new file mode 100644
+index 0000000000..af9204286a
+--- /dev/null
++++ b/apps/server/src/services/claudeCode/runtimeState.ts
+@@ -0,0 +1,44 @@
++import { ModelProvider } from 'model-bank/modelProvider';
++
++import type { AiProviderRuntimeState } from '@/types/aiProvider';
++
++import type { getClaudeCodeStatus } from './status';
++
++const PROVIDER_NAME = 'Claude Code (server)';
++
++type ClaudeCodeStatus = Awaited<ReturnType<typeof getClaudeCodeStatus>>;
++
++/**
++ * Serve the account's worker models with the ordinary model list, so a client without its own
++ * Claude Code entry, such as the released desktop app, can still show and reselect them.
++ */
++export const withClaudeCodeModels = (
++  state: AiProviderRuntimeState,
++  status: ClaudeCodeStatus,
++): AiProviderRuntimeState => {
++  if (!status.enabled || status.models.length === 0) return state;
++
++  const provider = {
++    id: ModelProvider.ClaudeCode,
++    name: PROVIDER_NAME,
++    source: 'builtin' as const,
++  };
++  const models = [...new Map(status.models.map((model) => [model.id, model])).values()];
++  return {
++    ...state,
++    enabledAiModels: [
++      ...state.enabledAiModels,
++      ...models.map(({ displayName, id }) => ({
++        abilities: { files: true, functionCall: true, vision: true },
++        displayName: `${PROVIDER_NAME} · ${displayName}`,
++        enabled: true,
++        id,
++        providerId: ModelProvider.ClaudeCode,
++        settings: { extendParams: ['opus47Effort' as const] },
++        type: 'chat' as const,
++      })),
++    ],
++    enabledAiProviders: [...state.enabledAiProviders, provider],
++    enabledChatAiProviders: [...state.enabledChatAiProviders, provider],
++  };
 +};
 diff --git a/apps/server/src/services/claudeCode/status.test.ts b/apps/server/src/services/claudeCode/status.test.ts
 new file mode 100644
@@ -12342,10 +12493,10 @@ index b83421d784..b76a5f7df6 100644
    AgentImageBlock,
 diff --git a/packages/heterogeneous-agents/src/protocol/serverAssistant.ts b/packages/heterogeneous-agents/src/protocol/serverAssistant.ts
 new file mode 100644
-index 0000000000..e2ff6b549e
+index 0000000000..391a18b3bf
 --- /dev/null
 +++ b/packages/heterogeneous-agents/src/protocol/serverAssistant.ts
-@@ -0,0 +1,47 @@
+@@ -0,0 +1,48 @@
 +import type { AgentStreamEvent } from '@lobechat/agent-gateway-client';
 +
 +import type { AgentPromptInput } from './types';
@@ -12364,6 +12515,7 @@ index 0000000000..e2ff6b549e
 +}
 +
 +export interface ClaudeCodeAssistantRequest {
++  effort?: 'high' | 'low' | 'max' | 'medium' | 'xhigh';
 +  model: string;
 +  prompt: AgentPromptInput;
 +  protocol: typeof CLAUDE_CODE_WORKER_PROTOCOL;
