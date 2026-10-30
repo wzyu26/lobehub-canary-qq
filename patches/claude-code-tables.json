@@ -1,0 +1,633 @@
+{
+  "public.claude_code_bindings": {
+    "name": "claude_code_bindings",
+    "schema": "",
+    "columns": {
+      "worker_id": {
+        "name": "worker_id",
+        "type": "text",
+        "primaryKey": true,
+        "notNull": true
+      },
+      "user_id": {
+        "name": "user_id",
+        "type": "text",
+        "primaryKey": false,
+        "notNull": true
+      },
+      "workspace_id": {
+        "name": "workspace_id",
+        "type": "text",
+        "primaryKey": false,
+        "notNull": false
+      },
+      "enabled": {
+        "name": "enabled",
+        "type": "boolean",
+        "primaryKey": false,
+        "notNull": true,
+        "default": false
+      },
+      "secret_hash": {
+        "name": "secret_hash",
+        "type": "text",
+        "primaryKey": false,
+        "notNull": true
+      },
+      "auth_status": {
+        "name": "auth_status",
+        "type": "text",
+        "primaryKey": false,
+        "notNull": true,
+        "default": "'unknown'"
+      },
+      "capabilities": {
+        "name": "capabilities",
+        "type": "jsonb",
+        "primaryKey": false,
+        "notNull": true,
+        "default": "'{}'::jsonb"
+      },
+      "last_seen_at": {
+        "name": "last_seen_at",
+        "type": "timestamp with time zone",
+        "primaryKey": false,
+        "notNull": false
+      },
+      "accessed_at": {
+        "name": "accessed_at",
+        "type": "timestamp with time zone",
+        "primaryKey": false,
+        "notNull": true,
+        "default": "now()"
+      },
+      "created_at": {
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "primaryKey": false,
+        "notNull": true,
+        "default": "now()"
+      },
+      "updated_at": {
+        "name": "updated_at",
+        "type": "timestamp with time zone",
+        "primaryKey": false,
+        "notNull": true,
+        "default": "now()"
+      }
+    },
+    "indexes": {
+      "claude_code_bindings_owner_unique": {
+        "name": "claude_code_bindings_owner_unique",
+        "columns": [
+          {
+            "expression": "user_id",
+            "isExpression": false,
+            "asc": true,
+            "nulls": "last"
+          },
+          {
+            "expression": "coalesce(\"workspace_id\", '')",
+            "asc": true,
+            "isExpression": true,
+            "nulls": "last"
+          }
+        ],
+        "isUnique": true,
+        "concurrently": false,
+        "method": "btree",
+        "with": {}
+      }
+    },
+    "foreignKeys": {
+      "claude_code_bindings_user_id_users_id_fk": {
+        "name": "claude_code_bindings_user_id_users_id_fk",
+        "tableFrom": "claude_code_bindings",
+        "tableTo": "users",
+        "columnsFrom": [
+          "user_id"
+        ],
+        "columnsTo": [
+          "id"
+        ],
+        "onDelete": "cascade",
+        "onUpdate": "no action"
+      },
+      "claude_code_bindings_workspace_id_workspaces_id_fk": {
+        "name": "claude_code_bindings_workspace_id_workspaces_id_fk",
+        "tableFrom": "claude_code_bindings",
+        "tableTo": "workspaces",
+        "columnsFrom": [
+          "workspace_id"
+        ],
+        "columnsTo": [
+          "id"
+        ],
+        "onDelete": "cascade",
+        "onUpdate": "no action"
+      }
+    },
+    "compositePrimaryKeys": {},
+    "uniqueConstraints": {},
+    "policies": {},
+    "checkConstraints": {},
+    "isRLSEnabled": false
+  },
+  "public.claude_code_events": {
+    "name": "claude_code_events",
+    "schema": "",
+    "columns": {
+      "run_id": {
+        "name": "run_id",
+        "type": "text",
+        "primaryKey": false,
+        "notNull": true
+      },
+      "sequence": {
+        "name": "sequence",
+        "type": "integer",
+        "primaryKey": false,
+        "notNull": true
+      },
+      "payload": {
+        "name": "payload",
+        "type": "jsonb",
+        "primaryKey": false,
+        "notNull": true
+      },
+      "payload_hash": {
+        "name": "payload_hash",
+        "type": "text",
+        "primaryKey": false,
+        "notNull": true
+      },
+      "projected": {
+        "name": "projected",
+        "type": "boolean",
+        "primaryKey": false,
+        "notNull": true,
+        "default": false
+      },
+      "accessed_at": {
+        "name": "accessed_at",
+        "type": "timestamp with time zone",
+        "primaryKey": false,
+        "notNull": true,
+        "default": "now()"
+      },
+      "created_at": {
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "primaryKey": false,
+        "notNull": true,
+        "default": "now()"
+      },
+      "updated_at": {
+        "name": "updated_at",
+        "type": "timestamp with time zone",
+        "primaryKey": false,
+        "notNull": true,
+        "default": "now()"
+      }
+    },
+    "indexes": {},
+    "foreignKeys": {
+      "claude_code_events_run_id_claude_code_runs_operation_id_fk": {
+        "name": "claude_code_events_run_id_claude_code_runs_operation_id_fk",
+        "tableFrom": "claude_code_events",
+        "tableTo": "claude_code_runs",
+        "columnsFrom": [
+          "run_id"
+        ],
+        "columnsTo": [
+          "operation_id"
+        ],
+        "onDelete": "cascade",
+        "onUpdate": "no action"
+      }
+    },
+    "compositePrimaryKeys": {
+      "claude_code_events_run_id_sequence_pk": {
+        "name": "claude_code_events_run_id_sequence_pk",
+        "columns": [
+          "run_id",
+          "sequence"
+        ]
+      }
+    },
+    "uniqueConstraints": {},
+    "policies": {},
+    "checkConstraints": {},
+    "isRLSEnabled": false
+  },
+  "public.claude_code_runs": {
+    "name": "claude_code_runs",
+    "schema": "",
+    "columns": {
+      "operation_id": {
+        "name": "operation_id",
+        "type": "text",
+        "primaryKey": true,
+        "notNull": true
+      },
+      "user_id": {
+        "name": "user_id",
+        "type": "text",
+        "primaryKey": false,
+        "notNull": true
+      },
+      "workspace_id": {
+        "name": "workspace_id",
+        "type": "text",
+        "primaryKey": false,
+        "notNull": false
+      },
+      "topic_id": {
+        "name": "topic_id",
+        "type": "text",
+        "primaryKey": false,
+        "notNull": true
+      },
+      "thread_id": {
+        "name": "thread_id",
+        "type": "text",
+        "primaryKey": false,
+        "notNull": false
+      },
+      "worker_id": {
+        "name": "worker_id",
+        "type": "text",
+        "primaryKey": false,
+        "notNull": true
+      },
+      "request_id": {
+        "name": "request_id",
+        "type": "text",
+        "primaryKey": false,
+        "notNull": true
+      },
+      "request_hash": {
+        "name": "request_hash",
+        "type": "text",
+        "primaryKey": false,
+        "notNull": true
+      },
+      "status": {
+        "name": "status",
+        "type": "text",
+        "primaryKey": false,
+        "notNull": true,
+        "default": "'queued'"
+      },
+      "prepared_request": {
+        "name": "prepared_request",
+        "type": "jsonb",
+        "primaryKey": false,
+        "notNull": true
+      },
+      "lease_token_hash": {
+        "name": "lease_token_hash",
+        "type": "text",
+        "primaryKey": false,
+        "notNull": false
+      },
+      "lease_expires_at": {
+        "name": "lease_expires_at",
+        "type": "timestamp with time zone",
+        "primaryKey": false,
+        "notNull": false
+      },
+      "heartbeat_at": {
+        "name": "heartbeat_at",
+        "type": "timestamp with time zone",
+        "primaryKey": false,
+        "notNull": false
+      },
+      "queued_at": {
+        "name": "queued_at",
+        "type": "timestamp with time zone",
+        "primaryKey": false,
+        "notNull": true,
+        "default": "now()"
+      },
+      "started_at": {
+        "name": "started_at",
+        "type": "timestamp with time zone",
+        "primaryKey": false,
+        "notNull": false
+      },
+      "ended_at": {
+        "name": "ended_at",
+        "type": "timestamp with time zone",
+        "primaryKey": false,
+        "notNull": false
+      },
+      "error": {
+        "name": "error",
+        "type": "text",
+        "primaryKey": false,
+        "notNull": false
+      },
+      "last_event_sequence": {
+        "name": "last_event_sequence",
+        "type": "integer",
+        "primaryKey": false,
+        "notNull": true,
+        "default": 0
+      },
+      "projected_sequence": {
+        "name": "projected_sequence",
+        "type": "integer",
+        "primaryKey": false,
+        "notNull": true,
+        "default": 0
+      },
+      "accessed_at": {
+        "name": "accessed_at",
+        "type": "timestamp with time zone",
+        "primaryKey": false,
+        "notNull": true,
+        "default": "now()"
+      },
+      "created_at": {
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "primaryKey": false,
+        "notNull": true,
+        "default": "now()"
+      },
+      "updated_at": {
+        "name": "updated_at",
+        "type": "timestamp with time zone",
+        "primaryKey": false,
+        "notNull": true,
+        "default": "now()"
+      }
+    },
+    "indexes": {
+      "claude_code_runs_request_unique": {
+        "name": "claude_code_runs_request_unique",
+        "columns": [
+          {
+            "expression": "user_id",
+            "isExpression": false,
+            "asc": true,
+            "nulls": "last"
+          },
+          {
+            "expression": "coalesce(\"workspace_id\", '')",
+            "asc": true,
+            "isExpression": true,
+            "nulls": "last"
+          },
+          {
+            "expression": "request_id",
+            "isExpression": false,
+            "asc": true,
+            "nulls": "last"
+          }
+        ],
+        "isUnique": true,
+        "concurrently": false,
+        "method": "btree",
+        "with": {}
+      },
+      "claude_code_runs_single_active": {
+        "name": "claude_code_runs_single_active",
+        "columns": [
+          {
+            "expression": "(1)",
+            "asc": true,
+            "isExpression": true,
+            "nulls": "last"
+          }
+        ],
+        "isUnique": true,
+        "where": "\"claude_code_runs\".\"status\" IN ('running', 'cancelling')",
+        "concurrently": false,
+        "method": "btree",
+        "with": {}
+      },
+      "claude_code_runs_queue_idx": {
+        "name": "claude_code_runs_queue_idx",
+        "columns": [
+          {
+            "expression": "status",
+            "isExpression": false,
+            "asc": true,
+            "nulls": "last"
+          },
+          {
+            "expression": "queued_at",
+            "isExpression": false,
+            "asc": true,
+            "nulls": "last"
+          }
+        ],
+        "isUnique": false,
+        "concurrently": false,
+        "method": "btree",
+        "with": {}
+      },
+      "claude_code_runs_owner_topic_idx": {
+        "name": "claude_code_runs_owner_topic_idx",
+        "columns": [
+          {
+            "expression": "user_id",
+            "isExpression": false,
+            "asc": true,
+            "nulls": "last"
+          },
+          {
+            "expression": "topic_id",
+            "isExpression": false,
+            "asc": true,
+            "nulls": "last"
+          }
+        ],
+        "isUnique": false,
+        "concurrently": false,
+        "method": "btree",
+        "with": {}
+      }
+    },
+    "foreignKeys": {
+      "claude_code_runs_operation_id_agent_operations_id_fk": {
+        "name": "claude_code_runs_operation_id_agent_operations_id_fk",
+        "tableFrom": "claude_code_runs",
+        "tableTo": "agent_operations",
+        "columnsFrom": [
+          "operation_id"
+        ],
+        "columnsTo": [
+          "id"
+        ],
+        "onDelete": "cascade",
+        "onUpdate": "no action"
+      },
+      "claude_code_runs_user_id_users_id_fk": {
+        "name": "claude_code_runs_user_id_users_id_fk",
+        "tableFrom": "claude_code_runs",
+        "tableTo": "users",
+        "columnsFrom": [
+          "user_id"
+        ],
+        "columnsTo": [
+          "id"
+        ],
+        "onDelete": "cascade",
+        "onUpdate": "no action"
+      },
+      "claude_code_runs_workspace_id_workspaces_id_fk": {
+        "name": "claude_code_runs_workspace_id_workspaces_id_fk",
+        "tableFrom": "claude_code_runs",
+        "tableTo": "workspaces",
+        "columnsFrom": [
+          "workspace_id"
+        ],
+        "columnsTo": [
+          "id"
+        ],
+        "onDelete": "cascade",
+        "onUpdate": "no action"
+      },
+      "claude_code_runs_topic_id_topics_id_fk": {
+        "name": "claude_code_runs_topic_id_topics_id_fk",
+        "tableFrom": "claude_code_runs",
+        "tableTo": "topics",
+        "columnsFrom": [
+          "topic_id"
+        ],
+        "columnsTo": [
+          "id"
+        ],
+        "onDelete": "cascade",
+        "onUpdate": "no action"
+      },
+      "claude_code_runs_thread_id_threads_id_fk": {
+        "name": "claude_code_runs_thread_id_threads_id_fk",
+        "tableFrom": "claude_code_runs",
+        "tableTo": "threads",
+        "columnsFrom": [
+          "thread_id"
+        ],
+        "columnsTo": [
+          "id"
+        ],
+        "onDelete": "cascade",
+        "onUpdate": "no action"
+      },
+      "claude_code_runs_worker_id_claude_code_bindings_worker_id_fk": {
+        "name": "claude_code_runs_worker_id_claude_code_bindings_worker_id_fk",
+        "tableFrom": "claude_code_runs",
+        "tableTo": "claude_code_bindings",
+        "columnsFrom": [
+          "worker_id"
+        ],
+        "columnsTo": [
+          "worker_id"
+        ],
+        "onDelete": "no action",
+        "onUpdate": "no action"
+      }
+    },
+    "compositePrimaryKeys": {},
+    "uniqueConstraints": {},
+    "policies": {},
+    "checkConstraints": {},
+    "isRLSEnabled": false
+  },
+  "public.claude_code_tool_receipts": {
+    "name": "claude_code_tool_receipts",
+    "schema": "",
+    "columns": {
+      "run_id": {
+        "name": "run_id",
+        "type": "text",
+        "primaryKey": false,
+        "notNull": true
+      },
+      "tool_call_id": {
+        "name": "tool_call_id",
+        "type": "text",
+        "primaryKey": false,
+        "notNull": true
+      },
+      "name": {
+        "name": "name",
+        "type": "text",
+        "primaryKey": false,
+        "notNull": true
+      },
+      "argument_hash": {
+        "name": "argument_hash",
+        "type": "text",
+        "primaryKey": false,
+        "notNull": true
+      },
+      "status": {
+        "name": "status",
+        "type": "text",
+        "primaryKey": false,
+        "notNull": true,
+        "default": "'started'"
+      },
+      "result": {
+        "name": "result",
+        "type": "jsonb",
+        "primaryKey": false,
+        "notNull": false
+      },
+      "accessed_at": {
+        "name": "accessed_at",
+        "type": "timestamp with time zone",
+        "primaryKey": false,
+        "notNull": true,
+        "default": "now()"
+      },
+      "created_at": {
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "primaryKey": false,
+        "notNull": true,
+        "default": "now()"
+      },
+      "updated_at": {
+        "name": "updated_at",
+        "type": "timestamp with time zone",
+        "primaryKey": false,
+        "notNull": true,
+        "default": "now()"
+      }
+    },
+    "indexes": {},
+    "foreignKeys": {
+      "claude_code_tool_receipts_run_id_claude_code_runs_operation_id_fk": {
+        "name": "claude_code_tool_receipts_run_id_claude_code_runs_operation_id_fk",
+        "tableFrom": "claude_code_tool_receipts",
+        "tableTo": "claude_code_runs",
+        "columnsFrom": [
+          "run_id"
+        ],
+        "columnsTo": [
+          "operation_id"
+        ],
+        "onDelete": "cascade",
+        "onUpdate": "no action"
+      }
+    },
+    "compositePrimaryKeys": {
+      "claude_code_tool_receipts_run_id_tool_call_id_pk": {
+        "name": "claude_code_tool_receipts_run_id_tool_call_id_pk",
+        "columns": [
+          "run_id",
+          "tool_call_id"
+        ]
+      }
+    },
+    "uniqueConstraints": {},
+    "policies": {},
+    "checkConstraints": {},
+    "isRLSEnabled": false
+  }
+}

@@ -1,25 +1,59 @@
-name: Validate and build opt-in Claude Code candidate
+name: Follow upstream with the Claude Code build
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: '23 */6 * * *'
   push:
-    branches: [codex/claude-code-server-integration]
+    branches: [main]
     paths:
       - '.github/workflows/claude-code-candidate.yml'
       - 'claude-code-baseline.json'
+      - 'scripts/prepare.py'
       - 'scripts/prepare-claude-code.py'
       - 'scripts/smoke-claude-code-app.mjs'
-      - 'patches/claude-code-server.patch'
+      - 'patches/**'
 
 concurrency:
-  group: claude-code-candidate
+  group: claude-code-follow
   cancel-in-progress: false
 
 permissions:
   contents: read
 
+env:
+  IMAGE: ghcr.io/wzyu26/lobehub-canary-qq
+
 jobs:
+  decide:
+    runs-on: ubuntu-24.04
+    outputs:
+      needed: ${{ steps.source.outputs.needed }}
+      sha: ${{ steps.source.outputs.sha }}
+      short: ${{ steps.source.outputs.short }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: source
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          sha=$(git ls-remote https://github.com/lobehub/lobehub.git refs/heads/canary | cut -f1)
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]]
+          patch=$(jq -r .patchSha256 claude-code-baseline.json)
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "short=${sha:0:12}" >> "$GITHUB_OUTPUT"
+          built=$(jq -r '"\(.upstream) \(.patchSha256)"' claude-code-last-build.json 2>/dev/null || true)
+          if [[ "$EVENT_NAME" == schedule && "$built" == "$sha $patch" ]]; then
+            echo 'needed=false' >> "$GITHUB_OUTPUT"
+            echo 'No new upstream commit; keeping the existing images.' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'needed=true' >> "$GITHUB_OUTPUT"
+          fi
+
   validate:
+    needs: decide
+    if: needs.decide.outputs.needed == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     services:
@@ -36,7 +70,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: lobehub/lobehub
-          ref: 528ffe89cfe882ac30ec6699e3c46004362985cb
+          ref: ${{ needs.decide.outputs.sha }}
           path: source
           persist-credentials: false
       - run: python3 config/scripts/prepare-claude-code.py source
@@ -84,7 +118,7 @@ jobs:
         run: pnpm exec vitest run --config vitest.config.mts src/adapter.test.ts src/passive-reply.test.ts
 
   image:
-    needs: validate
+    needs: [decide, validate]
     runs-on: ubuntu-24.04
     timeout-minutes: 150
     permissions:
@@ -96,13 +130,10 @@ jobs:
         include:
           - component: app
             file: Dockerfile.qq
-            image: ghcr.io/wzyu26/lobehub-canary-qq
           - component: worker
             file: apps/claude-code-worker/Dockerfile
-            image: ghcr.io/wzyu26/lobehub-claude-code-worker
           - component: admin
             file: apps/claude-code-worker/Dockerfile
-            image: ghcr.io/wzyu26/lobehub-claude-code-admin
             target: admin
     steps:
       - uses: actions/checkout@v7
@@ -111,7 +142,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: lobehub/lobehub
-          ref: 528ffe89cfe882ac30ec6699e3c46004362985cb
+          ref: ${{ needs.decide.outputs.sha }}
           path: source
           persist-credentials: false
       - run: python3 config/scripts/prepare-claude-code.py source
@@ -129,20 +160,19 @@ jobs:
           target: ${{ matrix.target || '' }}
           platforms: linux/amd64
           push: true
-          tags: ${{ matrix.image }}:claude-code-${{ github.sha }}
+          tags: ${{ env.IMAGE }}:claude-code-${{ matrix.component }}-${{ needs.decide.outputs.short }}-${{ github.run_id }}
           build-args: |
             LOBEHUB_BUILD_REVISION=${{ github.sha }}
             CLAUDE_CODE_VERSION=2.1.301
           labels: |
             org.opencontainers.image.revision=${{ github.sha }}
-            io.lobehub.upstream=528ffe89cfe882ac30ec6699e3c46004362985cb
+            io.lobehub.upstream=${{ needs.decide.outputs.sha }}
             io.lobehub.qq-patch=18187-8d48bcdbd746aa036f0fde9f1ba934cc8ac26a14
           cache-from: type=gha,scope=claude-code-${{ matrix.component }}
           cache-to: type=gha,scope=claude-code-${{ matrix.component }},mode=max,ignore-error=true
       - name: Verify the published runtime
         env:
           COMPONENT: ${{ matrix.component }}
-          IMAGE: ${{ matrix.image }}
           DIGEST: ${{ steps.build.outputs.digest }}
         run: |
           set -euo pipefail
@@ -180,10 +210,43 @@ jobs:
               docker run --rm "$IMAGE@$DIGEST" --help
               ;;
           esac
-      - name: Record immutable candidate only
+
+  promote:
+    needs: [decide, image]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Move all three tags only after every image passed
         env:
-          IMAGE: ${{ matrix.image }}
-          DIGEST: ${{ steps.build.outputs.digest }}
+          SUFFIX: ${{ needs.decide.outputs.short }}-${{ github.run_id }}
         run: |
-          echo "Candidate: $IMAGE@$DIGEST" >> "$GITHUB_STEP_SUMMARY"
-          echo 'No production tag was promoted and no server was deployed.' >> "$GITHUB_STEP_SUMMARY"
+          set -euo pipefail
+          # Moved together and app last, so a deployment never pairs a new app with an old worker.
+          docker buildx imagetools create --prefer-index=false --tag "$IMAGE:claude-code-worker" "$IMAGE:claude-code-worker-$SUFFIX"
+          docker buildx imagetools create --prefer-index=false --tag "$IMAGE:claude-code-admin" "$IMAGE:claude-code-admin-$SUFFIX"
+          docker buildx imagetools create --prefer-index=false --tag "$IMAGE:claude-code" "$IMAGE:claude-code-app-$SUFFIX"
+          echo "Promoted claude-code tags from $SUFFIX" >> "$GITHUB_STEP_SUMMARY"
+      - name: Record the build
+        env:
+          UPSTREAM: ${{ needs.decide.outputs.sha }}
+        run: |
+          set -euo pipefail
+          jq -n --arg upstream "$UPSTREAM" --arg patch "$(jq -r .patchSha256 claude-code-baseline.json)" --arg run "$GITHUB_RUN_ID" \
+            '{upstream: $upstream, patchSha256: $patch, run: $run}' > claude-code-last-build.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add claude-code-last-build.json
+          git commit -m "Record Claude Code build ${UPSTREAM:0:12} [skip ci]"
+          git pull --rebase origin main
+          git push origin HEAD:main

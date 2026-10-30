@@ -14,6 +14,12 @@ Also includes a local QQ passive-reply fix: adapter replies carry the incoming `
 
 The image is built from public upstream source. Upstream licensing continues to apply. Dependency resolution follows upstream's Dockerfile; this is not a bit-for-bit reproducible build.
 
+## Claude Code build
+
+The scheduled build is now `claude-code-candidate.yml`: it applies the QQ fixes and `patches/claude-code-server.patch` to the latest upstream `canary`, places the Claude Code migration after upstream's newest one, runs the checks, builds the app, worker and admin images, and only then moves the `claude-code`, `claude-code-worker` and `claude-code-admin` tags together. If any step fails, the tags stay on the last good build. `canary` is no longer updated on a schedule.
+
+The migration takes the millisecond after upstream's newest timestamp, never the build time, because drizzle skips any migration older than the newest one the database has recorded.
+
 ## Deployment
 
 Set only the application's Compose image to `ghcr.io/wzyu26/lobehub-canary-qq:canary`; keep the existing environment, networking and dependencies. The GHCR package must be public for anonymous pulls, or the server must have its own read-only registry login.
