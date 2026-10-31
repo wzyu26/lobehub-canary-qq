@@ -1,0 +1,1741 @@
+diff --git a/apps/server/src/routers/lambda/documentAiComment.ts b/apps/server/src/routers/lambda/documentAiComment.ts
+new file mode 100644
+index 00000000..d9c8f162
+--- /dev/null
++++ b/apps/server/src/routers/lambda/documentAiComment.ts
+@@ -0,0 +1,79 @@
++import { TRPCError } from '@trpc/server';
++import { z } from 'zod';
++
++import { wsCompatProcedure } from '@/business/server/trpc-middlewares/workspaceAuth';
++import { DocumentModel } from '@/database/models/document';
++import { DocumentAiCommentModel } from '@/database/models/documentAiComment';
++import { router } from '@/libs/trpc/lambda';
++import { serverDatabase } from '@/libs/trpc/lambda/middleware';
++
++/** Mirrors the client's `ANCHOR_QUOTE_MAX_LENGTH` / `ANCHOR_CONTEXT_LENGTH`. */
++const selectionAnchorSchema = z.object({
++  end: z.number().int().min(0),
++  prefix: z.string().max(200).optional(),
++  quote: z.string().min(1).max(2000),
++  start: z.number().int().min(0),
++  suffix: z.string().max(200).optional(),
++});
++
++const messageSchema = z.object({
++  content: z.string().max(100_000),
++  createdAt: z.string().max(64),
++  error: z.string().max(2000).optional(),
++  model: z.string().max(255).optional(),
++  provider: z.string().max(255).optional(),
++  role: z.enum(['assistant', 'user']),
++});
++
++const messagesSchema = z.array(messageSchema).max(200);
++
++const documentAiCommentProcedure = wsCompatProcedure
++  .use(serverDatabase)
++  .use(async ({ ctx, next }) =>
++    next({
++      ctx: {
++        documentAiCommentModel: new DocumentAiCommentModel(ctx.serverDB, ctx.userId),
++        documentModel: new DocumentModel(ctx.serverDB, ctx.userId, ctx.workspaceId ?? undefined),
++      },
++    }),
++  );
++
++/**
++ * Private AI threads anchored to a page selection. Rows are scoped to their
++ * author; the document is checked through the caller's ordinary document
++ * scope so a thread can only be started on a page the caller can open.
++ */
++export const documentAiCommentRouter = router({
++  create: documentAiCommentProcedure
++    .input(
++      z.object({
++        documentId: z.string().trim().min(1).max(255),
++        messages: messagesSchema,
++        selectionAnchor: selectionAnchorSchema,
++      }),
++    )
++    .mutation(async ({ ctx, input }) => {
++      const document = await ctx.documentModel.findById(input.documentId);
++      if (!document) throw new TRPCError({ code: 'NOT_FOUND', message: 'Document not found' });
++
++      return ctx.documentAiCommentModel.create(input);
++    }),
++
++  delete: documentAiCommentProcedure
++    .input(z.object({ id: z.string().uuid() }))
++    .mutation(async ({ ctx, input }) => {
++      await ctx.documentAiCommentModel.delete(input.id);
++    }),
++
++  list: documentAiCommentProcedure
++    .input(z.object({ documentId: z.string().trim().min(1).max(255) }))
++    .query(async ({ ctx, input }) => ctx.documentAiCommentModel.listByDocument(input.documentId)),
++
++  updateMessages: documentAiCommentProcedure
++    .input(z.object({ id: z.string().uuid(), messages: messagesSchema }))
++    .mutation(async ({ ctx, input }) => {
++      const row = await ctx.documentAiCommentModel.updateMessages(input.id, input.messages);
++      if (!row) throw new TRPCError({ code: 'NOT_FOUND', message: 'AI comment not found' });
++      return row;
++    }),
++});
+diff --git a/apps/server/src/routers/lambda/index.ts b/apps/server/src/routers/lambda/index.ts
+index f9ef80cf..98c96e88 100644
+--- a/apps/server/src/routers/lambda/index.ts
++++ b/apps/server/src/routers/lambda/index.ts
+@@ -59,6 +59,7 @@ import { dashboardRouter } from './dashboard';
+ import { deviceRouter } from './device';
+ import { deviceMetricRouter } from './deviceMetric';
+ import { documentRouter } from './document';
++import { documentAiCommentRouter } from './documentAiComment';
+ import { documentCommentRouter } from './documentComment';
+ import { documentLikeRouter } from './documentLike';
+ import { environmentRouter } from './environment';
+@@ -163,6 +164,7 @@ export const lambdaRouter = router({
+   device: deviceRouter,
+   deviceMetric: deviceMetricRouter,
+   document: documentRouter,
++  documentAiComment: documentAiCommentRouter,
+   documentComment: documentCommentRouter,
+   documentLike: documentLikeRouter,
+   exporter: exporterRouter,
+diff --git a/locales/en-US/file.json b/locales/en-US/file.json
+index b391c74d..3edf61e7 100644
+--- a/locales/en-US/file.json
++++ b/locales/en-US/file.json
+@@ -281,6 +281,23 @@
+   "pageEditor.agentUnavailable.noGateway": "The Agent can't edit pages until Gateway Mode is on. Ask your admin to turn it on.",
+   "pageEditor.agentUnavailable.sandboxUnconfigured": "The Agent can't edit pages until a sandbox is configured. Ask your admin to set one up.",
+   "pageEditor.agentUnavailable.viewDocs": "View docs",
++  "pageEditor.aiComments.cancel": "Cancel",
++  "pageEditor.aiComments.defaultQuestion": "Explain or comment on this passage.",
++  "pageEditor.aiComments.delete": "Delete",
++  "pageEditor.aiComments.deleteFailed": "Failed to delete. Try again.",
++  "pageEditor.aiComments.empty": "Select text in the page and click “Comment” to ask the AI about it.",
++  "pageEditor.aiComments.emptyAnswer": "The AI returned no answer.",
++  "pageEditor.aiComments.failed": "No answer",
++  "pageEditor.aiComments.placeholder": "Ask the AI about this passage… (leave empty to have it explained)",
++  "pageEditor.aiComments.replyPlaceholder": "Ask a follow-up…",
++  "pageEditor.aiComments.retry": "Retry",
++  "pageEditor.aiComments.saveFailed": "Failed to save the AI comment.",
++  "pageEditor.aiComments.send": "Ask AI",
++  "pageEditor.aiComments.stop": "Stop",
++  "pageEditor.aiComments.stopped": "Stopped.",
++  "pageEditor.aiComments.thinking": "Thinking…",
++  "pageEditor.aiComments.title": "AI comments",
++  "pageEditor.aiComments.unanswered": "No answer yet.",
+   "pageEditor.artifactTag": "Artifact",
+   "pageEditor.autoSaveMessage": "Your page is saved automatically. No need to save manually.",
+   "pageEditor.chooseIcon": "Choose Icon",
+diff --git a/locales/zh-CN/file.json b/locales/zh-CN/file.json
+index a52800c2..b6e2da9a 100644
+--- a/locales/zh-CN/file.json
++++ b/locales/zh-CN/file.json
+@@ -281,6 +281,23 @@
+   "pageEditor.agentUnavailable.noGateway": "开启 Gateway 模式后，Agent 才能编辑页面。请联系管理员开启。",
+   "pageEditor.agentUnavailable.sandboxUnconfigured": "配置沙箱后，Agent 才能编辑页面。请联系管理员配置。",
+   "pageEditor.agentUnavailable.viewDocs": "查看文档",
++  "pageEditor.aiComments.cancel": "取消",
++  "pageEditor.aiComments.defaultQuestion": "请解释或点评这段内容。",
++  "pageEditor.aiComments.delete": "删除",
++  "pageEditor.aiComments.deleteFailed": "删除失败，请重试",
++  "pageEditor.aiComments.empty": "在正文中划选文字，点「评论」即可问 AI。",
++  "pageEditor.aiComments.emptyAnswer": "AI 没有返回内容",
++  "pageEditor.aiComments.failed": "回复失败",
++  "pageEditor.aiComments.placeholder": "问 AI 关于这段内容…（留空则让 AI 解释）",
++  "pageEditor.aiComments.replyPlaceholder": "继续追问…",
++  "pageEditor.aiComments.retry": "重试",
++  "pageEditor.aiComments.saveFailed": "AI 评论保存失败",
++  "pageEditor.aiComments.send": "问 AI",
++  "pageEditor.aiComments.stop": "停止",
++  "pageEditor.aiComments.stopped": "已停止。",
++  "pageEditor.aiComments.thinking": "思考中…",
++  "pageEditor.aiComments.title": "AI 评论",
++  "pageEditor.aiComments.unanswered": "还没有回答。",
+   "pageEditor.artifactTag": "Artifact",
+   "pageEditor.autoSaveMessage": "文稿会自动保存，无需手动保存",
+   "pageEditor.chooseIcon": "选择图标",
+diff --git a/packages/database/src/models/__tests__/documentAiComment.test.ts b/packages/database/src/models/__tests__/documentAiComment.test.ts
+new file mode 100644
+index 00000000..19c0684d
+--- /dev/null
++++ b/packages/database/src/models/__tests__/documentAiComment.test.ts
+@@ -0,0 +1,91 @@
++// @vitest-environment node
++import { inArray } from 'drizzle-orm';
++import { afterEach, beforeEach, describe, expect, it } from 'vitest';
++
++import { getTestDB } from '../../core/getTestDB';
++import { documents, users } from '../../schemas';
++import { documentAiComments } from '../../schemas/documentAiComment';
++import type { LobeChatDatabase } from '../../type';
++import { DocumentAiCommentModel } from '../documentAiComment';
++
++const serverDB: LobeChatDatabase = await getTestDB();
++
++const ownerId = 'document-ai-comment-owner';
++const otherId = 'document-ai-comment-other';
++const documentId = 'document-ai-comment-document';
++
++const anchor = { end: 9, quote: 'brown', start: 4 };
++const question = { content: 'what?', createdAt: '2026-10-30T00:00:00Z', role: 'user' as const };
++
++const cleanup = async () => {
++  await serverDB.delete(documents).where(inArray(documents.id, [documentId]));
++  await serverDB.delete(users).where(inArray(users.id, [ownerId, otherId]));
++};
++
++beforeEach(async () => {
++  await cleanup();
++  await serverDB.insert(users).values([{ id: ownerId }, { id: otherId }]);
++  await serverDB.insert(documents).values({
++    fileType: 'custom',
++    id: documentId,
++    source: documentId,
++    sourceType: 'api',
++    totalCharCount: 0,
++    totalLineCount: 0,
++    userId: ownerId,
++  });
++});
++
++afterEach(cleanup);
++
++describe('DocumentAiCommentModel', () => {
++  it('creates, lists, updates and deletes a thread for its owner', async () => {
++    const model = new DocumentAiCommentModel(serverDB, ownerId);
++
++    const created = await model.create({
++      documentId,
++      messages: [question],
++      selectionAnchor: anchor,
++    });
++    expect(created.userId).toBe(ownerId);
++
++    const answer = {
++      content: 'an answer',
++      createdAt: '2026-10-30T00:00:01Z',
++      role: 'assistant' as const,
++    };
++    const updated = await model.updateMessages(created.id, [question, answer]);
++    expect(updated?.messages).toEqual([question, answer]);
++
++    const listed = await model.listByDocument(documentId);
++    expect(listed.map((row) => row.id)).toEqual([created.id]);
++    expect(listed[0].selectionAnchor).toEqual(anchor);
++
++    await model.delete(created.id);
++    expect(await model.listByDocument(documentId)).toEqual([]);
++  });
++
++  it('keeps threads private to their author', async () => {
++    const owner = new DocumentAiCommentModel(serverDB, ownerId);
++    const other = new DocumentAiCommentModel(serverDB, otherId);
++    const created = await owner.create({
++      documentId,
++      messages: [question],
++      selectionAnchor: anchor,
++    });
++
++    expect(await other.listByDocument(documentId)).toEqual([]);
++    expect(await other.updateMessages(created.id, [])).toBeUndefined();
++    await other.delete(created.id);
++    expect(await owner.listByDocument(documentId)).toHaveLength(1);
++  });
++
++  it('goes away with its document', async () => {
++    const model = new DocumentAiCommentModel(serverDB, ownerId);
++    await model.create({ documentId, messages: [question], selectionAnchor: anchor });
++
++    await serverDB.delete(documents).where(inArray(documents.id, [documentId]));
++
++    expect(await serverDB.select().from(documentAiComments)).toEqual([]);
++  });
++});
+diff --git a/packages/database/src/models/documentAiComment.ts b/packages/database/src/models/documentAiComment.ts
+new file mode 100644
+index 00000000..8b77a462
+--- /dev/null
++++ b/packages/database/src/models/documentAiComment.ts
+@@ -0,0 +1,57 @@
++import { and, asc, eq } from 'drizzle-orm';
++
++import type { DocumentAiCommentItem, DocumentAiCommentMessage } from '../schemas/documentAiComment';
++import { documentAiComments } from '../schemas/documentAiComment';
++import type { LobeChatDatabase } from '../type';
++
++/** Every query is scoped to the calling user: AI comment threads are private. */
++export class DocumentAiCommentModel {
++  private userId: string;
++  private db: LobeChatDatabase;
++
++  constructor(db: LobeChatDatabase, userId: string) {
++    this.userId = userId;
++    this.db = db;
++  }
++
++  private own = (id: string) =>
++    and(eq(documentAiComments.id, id), eq(documentAiComments.userId, this.userId));
++
++  listByDocument = async (documentId: string): Promise<DocumentAiCommentItem[]> =>
++    this.db
++      .select()
++      .from(documentAiComments)
++      .where(
++        and(
++          eq(documentAiComments.documentId, documentId),
++          eq(documentAiComments.userId, this.userId),
++        ),
++      )
++      .orderBy(asc(documentAiComments.createdAt));
++
++  create = async (
++    params: Pick<DocumentAiCommentItem, 'documentId' | 'messages' | 'selectionAnchor'>,
++  ): Promise<DocumentAiCommentItem> => {
++    const [row] = await this.db
++      .insert(documentAiComments)
++      .values({ ...params, userId: this.userId })
++      .returning();
++    return row;
++  };
++
++  updateMessages = async (
++    id: string,
++    messages: DocumentAiCommentMessage[],
++  ): Promise<DocumentAiCommentItem | undefined> => {
++    const [row] = await this.db
++      .update(documentAiComments)
++      .set({ messages })
++      .where(this.own(id))
++      .returning();
++    return row;
++  };
++
++  delete = async (id: string) => {
++    await this.db.delete(documentAiComments).where(this.own(id));
++  };
++}
+diff --git a/packages/database/src/schemas/documentAiComment.ts b/packages/database/src/schemas/documentAiComment.ts
+new file mode 100644
+index 00000000..1136ff37
+--- /dev/null
++++ b/packages/database/src/schemas/documentAiComment.ts
+@@ -0,0 +1,49 @@
++import type { DocumentCommentSelectionAnchor } from '@lobechat/types';
++import { index, jsonb, pgTable, text, uuid } from 'drizzle-orm/pg-core';
++
++import { createdAt, updatedAt } from './_helpers';
++import { documents } from './file';
++import { users } from './user';
++
++export interface DocumentAiCommentMessage {
++  content: string;
++  createdAt: string;
++  /** Set on an assistant turn whose generation failed; `content` holds what arrived. */
++  error?: string;
++  model?: string;
++  provider?: string;
++  role: 'assistant' | 'user';
++}
++
++/**
++ * Private "ask AI about this passage" threads on a page. Each row is one thread
++ * anchored to a text selection; the assistant's answers are the comments.
++ *
++ * Kept apart from `document_comments`, which are human collaboration threads
++ * owned by a Workspace: these belong to one user, work on personal pages and
++ * are never shared with other members.
++ *
++ * Kept out of `documents.metadata` too: writing there bumps the document's
++ * `updated_at`, which the editor uses as its save precondition.
++ */
++export const documentAiComments = pgTable(
++  'document_ai_comments',
++  {
++    id: uuid('id').defaultRandom().notNull().primaryKey(),
++    userId: text('user_id')
++      .references(() => users.id, { onDelete: 'cascade' })
++      .notNull(),
++    documentId: text('document_id')
++      .references(() => documents.id, { onDelete: 'cascade' })
++      .notNull(),
++    /** Same text-quote anchor as `document_comments.selection_anchor`. */
++    selectionAnchor: jsonb('selection_anchor').$type<DocumentCommentSelectionAnchor>().notNull(),
++    messages: jsonb('messages').$type<DocumentAiCommentMessage[]>().notNull().default([]),
++    createdAt: createdAt(),
++    updatedAt: updatedAt(),
++  },
++  (t) => [index('document_ai_comments_document_id_user_id_idx').on(t.documentId, t.userId)],
++);
++
++export type DocumentAiCommentItem = typeof documentAiComments.$inferSelect;
++export type NewDocumentAiComment = typeof documentAiComments.$inferInsert;
+diff --git a/packages/locales/src/default/file.ts b/packages/locales/src/default/file.ts
+index 9086c9d9..3e3a4db2 100644
+--- a/packages/locales/src/default/file.ts
++++ b/packages/locales/src/default/file.ts
+@@ -320,6 +320,25 @@ export default {
+   'pageEditor.artifactTag': 'Artifact',
+   'pageEditor.autoSaveMessage': 'Your page is saved automatically. No need to save manually.',
+   'pageEditor.chooseIcon': 'Choose Icon',
++  'pageEditor.aiComments.cancel': 'Cancel',
++  'pageEditor.aiComments.defaultQuestion': 'Explain or comment on this passage.',
++  'pageEditor.aiComments.delete': 'Delete',
++  'pageEditor.aiComments.deleteFailed': 'Failed to delete. Try again.',
++  'pageEditor.aiComments.empty':
++    'Select text in the page and click “Comment” to ask the AI about it.',
++  'pageEditor.aiComments.emptyAnswer': 'The AI returned no answer.',
++  'pageEditor.aiComments.failed': 'No answer',
++  'pageEditor.aiComments.placeholder':
++    'Ask the AI about this passage… (leave empty to have it explained)',
++  'pageEditor.aiComments.replyPlaceholder': 'Ask a follow-up…',
++  'pageEditor.aiComments.retry': 'Retry',
++  'pageEditor.aiComments.saveFailed': 'Failed to save the AI comment.',
++  'pageEditor.aiComments.send': 'Ask AI',
++  'pageEditor.aiComments.stop': 'Stop',
++  'pageEditor.aiComments.stopped': 'Stopped.',
++  'pageEditor.aiComments.thinking': 'Thinking…',
++  'pageEditor.aiComments.title': 'AI comments',
++  'pageEditor.aiComments.unanswered': 'No answer yet.',
+   'pageEditor.collab.notSynced':
+     'Your latest page edits are still syncing, so the Agent may not see them yet.',
+   'pageEditor.collab.offlineRestore.content':
+diff --git a/src/features/PageEditor/AIComments/Composer.tsx b/src/features/PageEditor/AIComments/Composer.tsx
+new file mode 100644
+index 00000000..3d94cc2c
+--- /dev/null
++++ b/src/features/PageEditor/AIComments/Composer.tsx
+@@ -0,0 +1,93 @@
++'use client';
++
++import type { DocumentCommentSelectionAnchor } from '@lobechat/types';
++import { Button, Flexbox, TextArea } from '@lobehub/ui';
++import { SendHorizontal } from 'lucide-react';
++import { memo, useEffect, useRef, useState } from 'react';
++import { useTranslation } from 'react-i18next';
++
++import AnchorQuote from '../DocumentComments/anchor/AnchorQuote';
++import { styles } from '../DocumentComments/styles';
++
++interface AskComposerProps {
++  anchor?: DocumentCommentSelectionAnchor;
++  /** Re-focus the input when this changes (a new pick of the same text). */
++  focusKey?: number;
++  onCancel?: () => void;
++  onSubmit: (question: string) => void;
++  /** Follow-up mode: an empty question cannot be sent and there is no quote. */
++  placeholder: string;
++  submitDisabled?: boolean;
++}
++
++/**
++ * The question box. On a fresh selection an empty question is allowed (the AI
++ * explains the passage); a follow-up needs words.
++ */
++const AskComposer = memo<AskComposerProps>(
++  ({ anchor, focusKey, onCancel, onSubmit, placeholder, submitDisabled }) => {
++    const { t } = useTranslation('file');
++    const [value, setValue] = useState('');
++    const inputRef = useRef<any>(null);
++    const allowEmpty = Boolean(anchor);
++    const canSend = !submitDisabled && (allowEmpty || value.trim().length > 0);
++
++    useEffect(() => {
++      if (!anchor) return;
++      // The panel slides in; focus once it is there.
++      const timer = setTimeout(() => inputRef.current?.focus?.(), 120);
++      return () => clearTimeout(timer);
++    }, [anchor, focusKey]);
++
++    const send = () => {
++      if (!canSend) return;
++      onSubmit(value);
++      setValue('');
++    };
++
++    return (
++      <Flexbox gap={8}>
++        {anchor && <AnchorQuote anchor={anchor} onDismiss={onCancel} />}
++        <TextArea
++          autoSize={{ maxRows: 8, minRows: anchor ? 2 : 1 }}
++          className={styles.textarea}
++          placeholder={placeholder}
++          ref={inputRef}
++          value={value}
++          variant={'borderless'}
++          onChange={(event) => setValue(event.target.value)}
++          onKeyDown={(event) => {
++            if (event.key === 'Escape' && onCancel) {
++              event.preventDefault();
++              onCancel();
++              return;
++            }
++            if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return;
++            event.preventDefault();
++            send();
++          }}
++        />
++        <Flexbox horizontal gap={8} justify={'flex-end'}>
++          {onCancel && (
++            <Button size={'small'} onClick={onCancel}>
++              {t('pageEditor.aiComments.cancel')}
++            </Button>
++          )}
++          <Button
++            disabled={!canSend}
++            icon={<SendHorizontal size={14} />}
++            size={'small'}
++            type={'primary'}
++            onClick={send}
++          >
++            {t('pageEditor.aiComments.send')}
++          </Button>
++        </Flexbox>
++      </Flexbox>
++    );
++  },
++);
++
++AskComposer.displayName = 'AICommentAskComposer';
++
++export default AskComposer;
+diff --git a/src/features/PageEditor/AIComments/Panel.tsx b/src/features/PageEditor/AIComments/Panel.tsx
+new file mode 100644
+index 00000000..4c2f0d28
+--- /dev/null
++++ b/src/features/PageEditor/AIComments/Panel.tsx
+@@ -0,0 +1,189 @@
++'use client';
++
++import { cx, Empty, Flexbox, Text } from '@lobehub/ui';
++import { SparklesIcon } from 'lucide-react';
++import { memo, type ReactNode, type RefObject, useEffect, useRef, useState } from 'react';
++import { useTranslation } from 'react-i18next';
++
++import AsyncError from '@/components/AsyncError';
++import SurfaceSkeleton from '@/components/Skeleton/Surface';
++import NavHeader from '@/features/NavHeader';
++import RightPanel from '@/features/RightPanel';
++import ToggleRightPanelButton from '@/features/RightPanel/ToggleRightPanelButton';
++
++import { useCommentAnchors } from '../DocumentComments/anchor/context';
++import { useForwardWheel } from '../DocumentComments/Gutter/useForwardWheel';
++import { PENDING_CARD_ID, useGutterLayout } from '../DocumentComments/Gutter/useGutterLayout';
++import { styles } from '../DocumentComments/styles';
++import { usePageAgentPanelControl } from '../RightPanel/OverrideContext';
++import { usePageEditorStore } from '../store';
++import AskComposer from './Composer';
++import { useAIComments } from './context';
++import ThreadCard from './ThreadCard';
++import type { AICommentsState } from './useAICommentsState';
++
++const PanelBody = memo<{ paneRef: RefObject<HTMLElement | null>; state: AICommentsState }>(
++  ({ paneRef, state }) => {
++    const { t } = useTranslation('file');
++    const { documentId, threads, streamingIds } = state;
++    const { selectedRootId, selectRoot } = useCommentAnchors();
++    const pendingAnchor = usePageEditorStore((s) =>
++      s.pendingCommentAnchor?.documentId === documentId ? s.pendingCommentAnchor.anchor : undefined,
++    );
++    const pickVersion = usePageEditorStore((s) => s.pendingCommentAnchorVersion);
++    const setPendingCommentAnchor = usePageEditorStore((s) => s.setPendingCommentAnchor);
++    const hasPending = Boolean(pendingAnchor);
++    const hostRef = useRef<HTMLDivElement>(null);
++    const trackRef = useRef<HTMLDivElement>(null);
++    const ids = threads.map(({ id }) => id);
++    const activeId = hasPending ? PENDING_CARD_ID : selectedRootId;
++    const { registerCard, scrollBy, tops } = useGutterLayout({
++      activeId,
++      hasPending,
++      ids,
++      paneRef,
++      trackRef,
++    });
++    useForwardWheel(hostRef, scrollBy);
++    const isEmpty = threads.length === 0 && !hasPending && !state.isLoading && !state.loadError;
++
++    const renderCard = (id: string, active: boolean, children: ReactNode) => {
++      const top = tops.get(id);
++      return (
++        <div
++          key={id}
++          ref={registerCard(id)}
++          style={{ top }}
++          className={cx(
++            styles.gutterCard,
++            top !== undefined && styles.gutterCardPositioned,
++            active && styles.gutterCardActive,
++            id === PENDING_CARD_ID && styles.gutterCardComposer,
++          )}
++          onClick={id === PENDING_CARD_ID ? undefined : () => selectRoot(id)}
++        >
++          {children}
++        </div>
++      );
++    };
++
++    return (
++      <div data-document-comment-gutter className={styles.gutter} ref={hostRef}>
++        {state.loadError ? (
++          <AsyncError error={state.loadError} variant={'block'} onRetry={() => void state.load()} />
++        ) : state.isLoading ? (
++          <SurfaceSkeleton header={false} variant={'list'} />
++        ) : (
++          isEmpty && (
++            <Flexbox align={'center'} className={styles.gutterEmpty} justify={'center'}>
++              <Empty description={t('pageEditor.aiComments.empty')} icon={SparklesIcon} />
++            </Flexbox>
++          )
++        )}
++        <div className={styles.gutterTrack} ref={trackRef}>
++          {pendingAnchor &&
++            renderCard(
++              PENDING_CARD_ID,
++              true,
++              <AskComposer
++                anchor={pendingAnchor}
++                focusKey={pickVersion}
++                placeholder={t('pageEditor.aiComments.placeholder')}
++                onCancel={() => setPendingCommentAnchor(undefined)}
++                onSubmit={(question) => {
++                  void state.ask(pendingAnchor, question).then((id) => {
++                    if (id) selectRoot(id);
++                  });
++                }}
++              />,
++            )}
++          {threads.map((thread) =>
++            renderCard(
++              thread.id,
++              selectedRootId === thread.id,
++              <ThreadCard
++                active={selectedRootId === thread.id}
++                streaming={streamingIds.has(thread.id)}
++                thread={thread}
++                onDelete={() => void state.remove(thread.id)}
++                onFollowUp={(question) => void state.followUp(thread.id, question)}
++                onRetry={() => void state.retry(thread.id)}
++                onStop={() => state.stop(thread.id)}
++              />,
++            ),
++          )}
++        </div>
++      </div>
++    );
++  },
++);
++
++PanelBody.displayName = 'AICommentsPanelBody';
++
++const DEFAULT_PANEL_WIDTH = 360;
++
++/**
++ * The AI comments sidebar. It takes the place of the human comments panel on
++ * pages outside a Workspace and shares its layout: cards sit level with the
++ * run they quote and follow the document's scroll.
++ */
++const AICommentsPanel = memo<{ paneRef: RefObject<HTMLElement | null> }>(({ paneRef }) => {
++  const { t } = useTranslation('file');
++  const state = useAIComments();
++  const [open, setOpen] = usePageEditorStore((s) => [s.commentsPanelOpen, s.setCommentsPanelOpen]);
++  const [width, setWidth] = useState<number | string>(DEFAULT_PANEL_WIDTH);
++  const { expand: agentOpen, toggle: toggleAgent } = usePageAgentPanelControl();
++
++  // Same rule as the comments panel: the two sidebars never show side by side.
++  const wasOpenRef = useRef(open);
++  const wasAgentOpenRef = useRef(agentOpen);
++  useEffect(() => {
++    const opened = open && !wasOpenRef.current;
++    const agentOpened = agentOpen && !wasAgentOpenRef.current;
++    wasOpenRef.current = open;
++    wasAgentOpenRef.current = agentOpen;
++    if (opened && agentOpen) toggleAgent(false);
++    else if (agentOpened && open) setOpen(false);
++  }, [agentOpen, open, setOpen, toggleAgent]);
++
++  if (!state) return null;
++
++  return (
++    <RightPanel
++      defaultWidth={width}
++      expand={open}
++      onExpandChange={setOpen}
++      onSizeChange={(size) => {
++        if (size?.width) setWidth(size.width);
++      }}
++    >
++      <Flexbox flex={1} height={'100%'} style={{ minHeight: 0 }}>
++        <NavHeader
++          showTogglePanelButton={false}
++          left={
++            <Text
++              ellipsis={{ tooltipWhenOverflow: true }}
++              style={{ fontSize: 13, fontWeight: 500, marginLeft: 8 }}
++              type={'secondary'}
++            >
++              {t('pageEditor.aiComments.title')}
++            </Text>
++          }
++          right={
++            <ToggleRightPanelButton
++              expand
++              showActive={false}
++              title={t('pageEditor.aiComments.title')}
++              onToggle={() => setOpen(false)}
++            />
++          }
++        />
++        <PanelBody paneRef={paneRef} state={state} />
++      </Flexbox>
++    </RightPanel>
++  );
++});
++
++AICommentsPanel.displayName = 'AICommentsPanel';
++
++export default AICommentsPanel;
+diff --git a/src/features/PageEditor/AIComments/ThreadCard.tsx b/src/features/PageEditor/AIComments/ThreadCard.tsx
+new file mode 100644
+index 00000000..73b8b39c
+--- /dev/null
++++ b/src/features/PageEditor/AIComments/ThreadCard.tsx
+@@ -0,0 +1,124 @@
++'use client';
++
++import { DEFAULT_INBOX_AVATAR } from '@lobechat/const';
++import { ActionIcon, Avatar, Button, Flexbox, Markdown, Text } from '@lobehub/ui';
++import { Square, Trash2 } from 'lucide-react';
++import { memo } from 'react';
++import { useTranslation } from 'react-i18next';
++
++import AnchorQuote from '../DocumentComments/anchor/AnchorQuote';
++import { useCommentAnchors } from '../DocumentComments/anchor/context';
++import AskComposer from './Composer';
++import { aiStyles } from './styles';
++import type { AIThread } from './useAICommentsState';
++
++interface ThreadCardProps {
++  active: boolean;
++  onDelete: () => void;
++  onFollowUp: (question: string) => void;
++  onRetry: () => void;
++  onStop: () => void;
++  streaming: boolean;
++  thread: AIThread;
++}
++
++const ThreadCard = memo<ThreadCardProps>(
++  ({ active, onDelete, onFollowUp, onRetry, onStop, streaming, thread }) => {
++    const { t } = useTranslation('file');
++    const { locateInBody, orphanedRootIds } = useCommentAnchors();
++    const last = thread.messages.at(-1);
++
++    return (
++      <Flexbox data-document-comment-id={thread.id} gap={8}>
++        <Flexbox horizontal align={'center'} gap={4}>
++          <div style={aiStyles.quote}>
++            <AnchorQuote
++              anchor={thread.selectionAnchor}
++              orphaned={orphanedRootIds.has(thread.id)}
++              onLocate={() => locateInBody(thread.id)}
++            />
++          </div>
++          <ActionIcon
++            icon={Trash2}
++            size={'small'}
++            title={t('pageEditor.aiComments.delete')}
++            onClick={(event) => {
++              event.stopPropagation();
++              onDelete();
++            }}
++          />
++        </Flexbox>
++        {thread.messages.map((message, index) =>
++          message.role === 'user' ? (
++            <Text key={index} style={aiStyles.question}>
++              {message.content}
++            </Text>
++          ) : (
++            <Flexbox gap={4} key={index}>
++              <Flexbox horizontal align={'center'} gap={6}>
++                <Avatar avatar={DEFAULT_INBOX_AVATAR} shape={'square'} size={18} />
++                <Text style={aiStyles.meta} type={'secondary'}>
++                  {message.model || 'AI'}
++                </Text>
++              </Flexbox>
++              {message.content ? (
++                <Markdown fontSize={13} variant={'chat'}>
++                  {message.content}
++                </Markdown>
++              ) : (
++                !message.error && (
++                  <Text style={aiStyles.meta} type={'secondary'}>
++                    {t('pageEditor.aiComments.thinking')}
++                  </Text>
++                )
++              )}
++              {message.error && (
++                <Flexbox horizontal align={'center'} gap={8}>
++                  <Text style={aiStyles.meta} type={'danger'}>
++                    {t('pageEditor.aiComments.failed')}: {message.error}
++                  </Text>
++                  {index === thread.messages.length - 1 && !streaming && (
++                    <Button size={'small'} onClick={onRetry}>
++                      {t('pageEditor.aiComments.retry')}
++                    </Button>
++                  )}
++                </Flexbox>
++              )}
++            </Flexbox>
++          ),
++        )}
++        {/* The page was closed before the answer arrived: offer to ask again. */}
++        {!streaming && last?.role === 'user' && (
++          <Flexbox horizontal align={'center'} gap={8}>
++            <Text style={aiStyles.meta} type={'secondary'}>
++              {t('pageEditor.aiComments.unanswered')}
++            </Text>
++            <Button size={'small'} onClick={onRetry}>
++              {t('pageEditor.aiComments.retry')}
++            </Button>
++          </Flexbox>
++        )}
++        {streaming ? (
++          <Flexbox horizontal justify={'flex-end'}>
++            <Button icon={<Square size={12} />} size={'small'} onClick={onStop}>
++              {t('pageEditor.aiComments.stop')}
++            </Button>
++          </Flexbox>
++        ) : (
++          active &&
++          last?.role === 'assistant' &&
++          !last.error && (
++            <AskComposer
++              placeholder={t('pageEditor.aiComments.replyPlaceholder')}
++              onSubmit={onFollowUp}
++            />
++          )
++        )}
++      </Flexbox>
++    );
++  },
++);
++
++ThreadCard.displayName = 'AICommentThreadCard';
++
++export default ThreadCard;
+diff --git a/src/features/PageEditor/AIComments/context.tsx b/src/features/PageEditor/AIComments/context.tsx
+new file mode 100644
+index 00000000..cd5ef578
+--- /dev/null
++++ b/src/features/PageEditor/AIComments/context.tsx
+@@ -0,0 +1,68 @@
++'use client';
++
++import { createContext, type ReactNode, use, useEffect } from 'react';
++
++import { DocumentCommentAnchorsProvider } from '../DocumentComments/anchor/context';
++import DocumentCommentHighlightStyle from '../DocumentComments/anchor/HighlightStyle';
++import { useDocumentCommentAnchors } from '../DocumentComments/anchor/useDocumentCommentAnchors';
++import { usePageEditorStore } from '../store';
++import type { AICommentsState } from './useAICommentsState';
++import { useAICommentsState } from './useAICommentsState';
++
++const AICommentsContext = createContext<AICommentsState | null>(null);
++
++const AICommentsStateProvider = ({
++  children,
++  documentId,
++}: {
++  children: ReactNode;
++  documentId: string;
++}) => {
++  const state = useAICommentsState(documentId);
++  const anchors = useDocumentCommentAnchors(state.anchors, { hasGutter: true });
++  const setCommentsPanelOpen = usePageEditorStore((s) => s.setCommentsPanelOpen);
++
++  // A selection sent from the toolbar, or a highlighted run clicked in the
++  // body, is answered in the panel: open it on demand (see the same rule in
++  // `DocumentCommentsProvider`).
++  const pickVersion = usePageEditorStore((s) =>
++    s.pendingCommentAnchor?.documentId === documentId ? s.pendingCommentAnchorVersion : 0,
++  );
++  const { pickTick, selectedRootId } = anchors;
++  useEffect(() => {
++    if (!(pickVersion || pickTick || selectedRootId)) return;
++    setCommentsPanelOpen(true);
++    // eslint-disable-next-line react-hooks/exhaustive-deps
++  }, [pickVersion, pickTick, selectedRootId]);
++
++  return (
++    <AICommentsContext value={state}>
++      <DocumentCommentAnchorsProvider value={anchors}>
++        <DocumentCommentHighlightStyle />
++        {children}
++      </DocumentCommentAnchorsProvider>
++    </AICommentsContext>
++  );
++};
++
++/**
++ * Pages outside a Workspace have no human comment threads; their selection
++ * "Comment" action asks the AI instead, and the answers are the comments.
++ */
++export const AICommentsProvider = ({
++  children,
++  documentId,
++}: {
++  children: ReactNode;
++  documentId?: string;
++}) => {
++  if (!documentId) return children;
++  return (
++    <AICommentsStateProvider documentId={documentId} key={documentId}>
++      {children}
++    </AICommentsStateProvider>
++  );
++};
++
++/** `null` outside a provider, i.e. on Workspace pages and before a document loads. */
++export const useAIComments = () => use(AICommentsContext);
+diff --git a/src/features/PageEditor/AIComments/prompt.test.ts b/src/features/PageEditor/AIComments/prompt.test.ts
+new file mode 100644
+index 00000000..3e970551
+--- /dev/null
++++ b/src/features/PageEditor/AIComments/prompt.test.ts
+@@ -0,0 +1,69 @@
++import { describe, expect, it } from 'vitest';
++
++import {
++  buildChatMessages,
++  buildDocumentContext,
++  CONTEXT_AFTER,
++  CONTEXT_BEFORE,
++  SELECTION_CLOSE,
++  SELECTION_OPEN,
++} from './prompt';
++
++const anchor = { end: 9, quote: 'brown', start: 4 };
++
++describe('buildDocumentContext', () => {
++  it('marks the selection inside a small document', () => {
++    const context = buildDocumentContext({
++      anchor,
++      bodyText: 'the brown fox',
++      match: { end: 9, start: 4 },
++      title: 'Fox',
++    });
++
++    expect(context).toBe(
++      `Title: Fox\n\nDocument:\nthe ${SELECTION_OPEN}brown${SELECTION_CLOSE} fox`,
++    );
++  });
++
++  it('keeps only a window around the selection in a long document', () => {
++    const before = 'a'.repeat(20_000);
++    const after = 'b'.repeat(20_000);
++    const bodyText = `${before}QUOTE${after}`;
++    const context = buildDocumentContext({
++      anchor: { end: 20_005, quote: 'QUOTE', start: 20_000 },
++      bodyText,
++      match: { end: 20_005, start: 20_000 },
++    });
++
++    expect(context).toContain(`${SELECTION_OPEN}QUOTE${SELECTION_CLOSE}`);
++    expect(context.match(/a/g)).toHaveLength(CONTEXT_BEFORE);
++    expect(context.match(/b/g)).toHaveLength(CONTEXT_AFTER);
++    expect(context.startsWith('Document:\n…')).toBe(true);
++    expect(context.endsWith('…')).toBe(true);
++  });
++
++  it('falls back to the stored quote when it was edited away', () => {
++    const context = buildDocumentContext({ anchor, bodyText: 'something else', match: null });
++
++    expect(context).toContain(`${SELECTION_OPEN}brown${SELECTION_CLOSE}`);
++    expect(context).toContain('something else');
++  });
++});
++
++describe('buildChatMessages', () => {
++  it('puts the context on the first question only and drops failed answers', () => {
++    const messages = buildChatMessages('CTX', [
++      { content: 'what?', createdAt: '1', role: 'user' },
++      { content: 'partial', createdAt: '2', error: 'boom', role: 'assistant' },
++      { content: 'what?', createdAt: '3', role: 'user' },
++      { content: 'answer', createdAt: '4', role: 'assistant' },
++      { content: 'more?', createdAt: '5', role: 'user' },
++    ]);
++
++    expect(messages.map((m) => m.role)).toEqual(['system', 'user', 'assistant', 'user']);
++    expect(messages[1].content).toContain('CTX');
++    expect(messages[1].content).toContain('what?\n\nwhat?');
++    expect(messages[2].content).toBe('answer');
++    expect(messages[3].content).toBe('more?');
++  });
++});
+diff --git a/src/features/PageEditor/AIComments/prompt.ts b/src/features/PageEditor/AIComments/prompt.ts
+new file mode 100644
+index 00000000..f2aae0c1
+--- /dev/null
++++ b/src/features/PageEditor/AIComments/prompt.ts
+@@ -0,0 +1,91 @@
++import type { DocumentCommentSelectionAnchor } from '@lobechat/types';
++
++import type { DocumentAiCommentMessage } from '@/database/schemas/documentAiComment';
++
++/** Below this the whole page goes into the prompt; above it, a window around the quote. */
++export const FULL_DOCUMENT_LIMIT = 16_000;
++export const CONTEXT_BEFORE = 6000;
++export const CONTEXT_AFTER = 3000;
++
++export const SELECTION_OPEN = '<<<';
++export const SELECTION_CLOSE = '>>>';
++
++const SYSTEM_PROMPT = `You answer comments in the margin of a document.
++The reader selected a passage (marked ${SELECTION_OPEN} … ${SELECTION_CLOSE} in the document below) and asked about it.
++- Focus on the selected passage; use the rest of the document only as context.
++- Reply like a margin comment: direct and short (usually under 200 words) unless the reader asks for more.
++- Reply in the language of the reader's question; if there is no question, in the document's language.
++- Markdown is fine. Do not rewrite the whole document.`;
++
++interface ChatMessage {
++  content: string;
++  role: 'assistant' | 'system' | 'user';
++}
++
++export interface DocumentContextParams {
++  anchor: DocumentCommentSelectionAnchor;
++  /** Flattened body text at the time of asking. */
++  bodyText: string;
++  /** Where the quote sits in `bodyText` now; `null` when it was edited away. */
++  match: { end: number; start: number } | null;
++  title?: string;
++}
++
++/**
++ * The document as the model sees it: the selection marked in place, the whole
++ * page when it is small, otherwise a window around the selection. When the
++ * quote no longer exists in the body the stored quote is given on its own.
++ */
++export const buildDocumentContext = ({
++  anchor,
++  bodyText,
++  match,
++  title,
++}: DocumentContextParams): string => {
++  const heading = title?.trim() ? `Title: ${title.trim()}\n\n` : '';
++
++  if (!match) {
++    return `${heading}Selected passage (no longer present in the current text):\n${SELECTION_OPEN}${anchor.quote}${SELECTION_CLOSE}\n\nDocument:\n${bodyText.slice(0, FULL_DOCUMENT_LIMIT)}`;
++  }
++
++  const small = bodyText.length <= FULL_DOCUMENT_LIMIT;
++  const from = small ? 0 : Math.max(0, match.start - CONTEXT_BEFORE);
++  const to = small ? bodyText.length : Math.min(bodyText.length, match.end + CONTEXT_AFTER);
++
++  const marked =
++    (from > 0 ? '…' : '') +
++    bodyText.slice(from, match.start) +
++    SELECTION_OPEN +
++    bodyText.slice(match.start, match.end) +
++    SELECTION_CLOSE +
++    bodyText.slice(match.end, to) +
++    (to < bodyText.length ? '…' : '');
++
++  return `${heading}Document:\n${marked}`;
++};
++
++/**
++ * The full chat for one thread. The document context rides on the first user
++ * turn only, rebuilt from the current body on every ask so a follow-up sees
++ * edits made since the thread started.
++ */
++export const buildChatMessages = (
++  context: string,
++  thread: readonly DocumentAiCommentMessage[],
++): ChatMessage[] => {
++  const turns = thread.filter((message) => message.role === 'user' || !message.error);
++
++  const chat: ChatMessage[] = [];
++  for (const message of turns) {
++    const previous = chat.at(-1);
++    // A failed answer leaves two questions back to back; providers that
++    // require alternating roles reject that, so they are sent as one turn.
++    if (previous?.role === message.role) previous.content += `\n\n${message.content}`;
++    else chat.push({ content: message.content, role: message.role });
++  }
++  if (chat[0]?.role === 'user') {
++    chat[0].content = `${context}\n\nReader's question about the selected passage:\n${chat[0].content}`;
++  }
++
++  return [{ content: SYSTEM_PROMPT, role: 'system' }, ...chat];
++};
+diff --git a/src/features/PageEditor/AIComments/styles.ts b/src/features/PageEditor/AIComments/styles.ts
+new file mode 100644
+index 00000000..504c26f7
+--- /dev/null
++++ b/src/features/PageEditor/AIComments/styles.ts
+@@ -0,0 +1,16 @@
++import { cssVar } from '@lobehub/ui';
++
++import { StyleSheet } from '@/utils/styles';
++
++export const aiStyles = StyleSheet.create({
++  meta: { fontSize: 12 },
++  question: {
++    background: cssVar.colorFillQuaternary,
++    borderRadius: cssVar.borderRadius,
++    fontSize: 13,
++    paddingBlock: 4,
++    paddingInline: 8,
++    whiteSpace: 'pre-wrap',
++  },
++  quote: { flex: 1, minWidth: 0 },
++});
+diff --git a/src/features/PageEditor/AIComments/useAICommentsState.test.ts b/src/features/PageEditor/AIComments/useAICommentsState.test.ts
+new file mode 100644
+index 00000000..c241a5ad
+--- /dev/null
++++ b/src/features/PageEditor/AIComments/useAICommentsState.test.ts
+@@ -0,0 +1,146 @@
++import { act, renderHook, waitFor } from '@testing-library/react';
++import { beforeEach, describe, expect, it, vi } from 'vitest';
++
++import { createStore } from '../store';
++import { useAICommentsState } from './useAICommentsState';
++
++const pageStore = vi.hoisted(() => ({ current: undefined as any }));
++vi.mock('../store', async (importOriginal) => {
++  const actual = await importOriginal<Record<string, unknown>>();
++  return {
++    ...actual,
++    usePageEditorStore: (selector: (s: any) => unknown) => pageStore.current(selector),
++  };
++});
++
++const service = vi.hoisted(() => ({
++  create: vi.fn(),
++  delete: vi.fn(),
++  list: vi.fn(),
++  updateMessages: vi.fn(),
++}));
++const chat = vi.hoisted(() => ({ fetchPresetTaskResult: vi.fn() }));
++
++vi.mock('@/services/documentAiComment', () => ({ documentAiCommentService: service }));
++vi.mock('@/services/chat', () => ({ chatService: chat }));
++vi.mock('@/store/agent', () => ({ getAgentStoreState: () => ({ activeAgentId: 'agent-1' }) }));
++vi.mock('@/store/agent/selectors', () => ({
++  agentByIdSelectors: {
++    getAgentModelById: () => () => 'test-model',
++    getAgentModelProviderById: () => () => 'test-provider',
++    isAgentHeterogeneousById: () => () => false,
++  },
++  builtinAgentSelectors: { pageAgentId: () => 'page-agent' },
++}));
++vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
++
++const anchor = { end: 9, quote: 'brown', start: 4 };
++
++const body = () => {
++  const root = document.createElement('div');
++  root.innerHTML = '<p>the brown fox</p>';
++  return root;
++};
++
++beforeEach(() => {
++  vi.clearAllMocks();
++  service.list.mockResolvedValue([]);
++  service.updateMessages.mockResolvedValue({});
++  const root = body();
++  pageStore.current = createStore({
++    editor: { getRootElement: () => root } as any,
++    title: 'Fox',
++  });
++});
++
++describe('useAICommentsState', () => {
++  it('saves the question, streams the answer and saves it under the new thread', async () => {
++    service.create.mockResolvedValue({ id: 'thread-1' });
++    chat.fetchPresetTaskResult.mockImplementation(async ({ onMessageHandle, onFinish, params }) => {
++      expect(params.model).toBe('test-model');
++      expect(params.provider).toBe('test-provider');
++      expect(params.messages[1].content).toContain('the <<<brown>>> fox');
++      expect(params.messages[1].content).toContain('pageEditor.aiComments.defaultQuestion');
++      onMessageHandle({ text: 'A ', type: 'text' });
++      onMessageHandle({ text: 'colour.', type: 'text' });
++      await onFinish('A colour.');
++    });
++
++    const { result } = renderHook(() => useAICommentsState('doc-1'));
++    await waitFor(() => expect(result.current.isLoading).toBe(false));
++
++    await act(async () => {
++      await result.current.ask(anchor, '  ');
++    });
++
++    expect(service.create).toHaveBeenCalledWith(
++      expect.objectContaining({ documentId: 'doc-1', selectionAnchor: anchor }),
++    );
++    expect(result.current.threads).toHaveLength(1);
++    expect(result.current.threads[0].id).toBe('thread-1');
++    expect(result.current.threads[0].messages.map((m) => [m.role, m.content])).toEqual([
++      ['user', 'pageEditor.aiComments.defaultQuestion'],
++      ['assistant', 'A colour.'],
++    ]);
++    expect(service.updateMessages).toHaveBeenCalledWith('thread-1', [
++      expect.objectContaining({ role: 'user' }),
++      expect.objectContaining({ content: 'A colour.', model: 'test-model', role: 'assistant' }),
++    ]);
++    expect(result.current.streamingIds.size).toBe(0);
++  });
++
++  it('marks a failed answer and replaces it on retry', async () => {
++    service.list.mockResolvedValue([
++      {
++        id: 'thread-1',
++        messages: [{ content: 'why?', createdAt: '1', role: 'user' }],
++        selectionAnchor: anchor,
++      },
++    ]);
++    chat.fetchPresetTaskResult.mockImplementationOnce(async ({ onError }) => {
++      onError(new Error('quota'));
++    });
++
++    const { result } = renderHook(() => useAICommentsState('doc-1'));
++    await waitFor(() => expect(result.current.threads).toHaveLength(1));
++
++    await act(async () => {
++      await result.current.retry('thread-1');
++    });
++    expect(result.current.threads[0].messages.at(-1)).toMatchObject({
++      error: 'quota',
++      role: 'assistant',
++    });
++
++    chat.fetchPresetTaskResult.mockImplementationOnce(async ({ onFinish }) => {
++      await onFinish('because.');
++    });
++    await act(async () => {
++      await result.current.retry('thread-1');
++    });
++
++    const messages = result.current.threads[0].messages;
++    expect(messages).toHaveLength(2);
++    expect(messages[1]).toMatchObject({ content: 'because.', role: 'assistant' });
++    expect(messages[1].error).toBeUndefined();
++  });
++
++  it('restores the selection when the question cannot be saved', async () => {
++    service.create.mockRejectedValue(new Error('offline'));
++    pageStore.current.setState({ documentId: 'doc-1' });
++
++    const { result } = renderHook(() => useAICommentsState('doc-1'));
++    await waitFor(() => expect(result.current.isLoading).toBe(false));
++
++    await act(async () => {
++      await result.current.ask(anchor, 'what?');
++    });
++
++    expect(result.current.threads).toEqual([]);
++    expect(chat.fetchPresetTaskResult).not.toHaveBeenCalled();
++    expect(pageStore.current.getState().pendingCommentAnchor).toEqual({
++      anchor,
++      documentId: 'doc-1',
++    });
++  });
++});
+diff --git a/src/features/PageEditor/AIComments/useAICommentsState.ts b/src/features/PageEditor/AIComments/useAICommentsState.ts
+new file mode 100644
+index 00000000..0ed2a0a0
+--- /dev/null
++++ b/src/features/PageEditor/AIComments/useAICommentsState.ts
+@@ -0,0 +1,324 @@
++'use client';
++
++import {
++  type DocumentCommentSelectionAnchor,
++  isChatGroupSessionId,
++  RequestTrigger,
++} from '@lobechat/types';
++import { toast } from '@lobehub/ui';
++import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
++import { useTranslation } from 'react-i18next';
++
++import type {
++  DocumentAiCommentItem,
++  DocumentAiCommentMessage,
++} from '@/database/schemas/documentAiComment';
++import { useSingleton } from '@/hooks/useSingleton';
++import { chatService } from '@/services/chat';
++import { documentAiCommentService } from '@/services/documentAiComment';
++import { getAgentStoreState } from '@/store/agent';
++import { agentByIdSelectors, builtinAgentSelectors } from '@/store/agent/selectors';
++
++import { flattenEditorText, locateAnchor } from '../DocumentComments/anchor/textAnchor';
++import { usePageEditorStore } from '../store';
++import { buildChatMessages, buildDocumentContext } from './prompt';
++
++export interface AIThread {
++  /** Server id; a thread being created carries a temporary `local-` id until it is saved. */
++  id: string;
++  messages: DocumentAiCommentMessage[];
++  selectionAnchor: DocumentCommentSelectionAnchor;
++}
++
++const LOCAL_PREFIX = 'local-';
++const now = () => new Date().toISOString();
++
++const toThread = (row: DocumentAiCommentItem): AIThread => ({
++  id: row.id,
++  messages: row.messages ?? [],
++  selectionAnchor: row.selectionAnchor,
++});
++
++/**
++ * The model the page copilot ("Ask Lobe AI") talks to: the active agent, or
++ * the built-in page agent when the active one cannot drive a page (a group or
++ * an agent on an external runtime) — the same rule as `PageAgentProvider`.
++ */
++const resolveCopilotModel = () => {
++  const state = getAgentStoreState();
++  const activeAgentId = state.activeAgentId;
++  const pageAgentId = builtinAgentSelectors.pageAgentId(state);
++  const agentId =
++    !activeAgentId ||
++    isChatGroupSessionId(activeAgentId) ||
++    agentByIdSelectors.isAgentHeterogeneousById(activeAgentId)(state)
++      ? pageAgentId
++      : activeAgentId;
++
++  return {
++    model: agentByIdSelectors.getAgentModelById(agentId ?? '')(state),
++    provider: agentByIdSelectors.getAgentModelProviderById(agentId ?? '')(state),
++  };
++};
++
++export const useAICommentsState = (documentId: string) => {
++  const { t } = useTranslation('file');
++  const editor = usePageEditorStore((s) => s.editor);
++  const title = usePageEditorStore((s) => s.title);
++  const setPendingCommentAnchor = usePageEditorStore((s) => s.setPendingCommentAnchor);
++
++  const [threads, setThreadsState] = useState<AIThread[]>([]);
++  const [isLoading, setIsLoading] = useState(true);
++  const [loadError, setLoadError] = useState<Error | undefined>();
++  const [streamingIds, setStreamingIds] = useState<ReadonlySet<string>>(() => new Set());
++  // The source of truth for the async flows below, which read a thread back
++  // right after changing it — before React has rendered the change.
++  const threadsRef = useRef(threads);
++  const setThreads = useCallback((update: AIThread[] | ((current: AIThread[]) => AIThread[])) => {
++    threadsRef.current = typeof update === 'function' ? update(threadsRef.current) : update;
++    setThreadsState(threadsRef.current);
++  }, []);
++  const aborters = useSingleton(() => new Map<string, AbortController>());
++  const removed = useSingleton(() => new Set<string>());
++
++  const load = useCallback(async () => {
++    setIsLoading(true);
++    setLoadError(undefined);
++    try {
++      const rows = await documentAiCommentService.list(documentId);
++      setThreads(rows.map(toThread));
++    } catch (error) {
++      setLoadError(error as Error);
++    } finally {
++      setIsLoading(false);
++    }
++  }, [documentId]);
++
++  useEffect(() => {
++    void load();
++    return () => {
++      for (const controller of aborters.values()) controller.abort();
++      aborters.clear();
++    };
++  }, [load]);
++
++  const patchThread = useCallback(
++    (id: string, patch: (thread: AIThread) => AIThread) => {
++      setThreads((current) => current.map((thread) => (thread.id === id ? patch(thread) : thread)));
++    },
++    [setThreads],
++  );
++
++  const setStreaming = useCallback((id: string, on: boolean) => {
++    setStreamingIds((current) => {
++      const next = new Set(current);
++      if (on) next.add(id);
++      else next.delete(id);
++      return next;
++    });
++  }, []);
++
++  const buildContext = useCallback(
++    (anchor: DocumentCommentSelectionAnchor) => {
++      const flat = flattenEditorText(editor?.getRootElement?.());
++      return buildDocumentContext({
++        anchor,
++        bodyText: flat.text,
++        match: locateAnchor(flat, anchor),
++        title,
++      });
++    },
++    [editor, title],
++  );
++
++  /**
++   * Stream an answer to the thread's last question into a new assistant turn,
++   * then persist the thread. A failed answer keeps what arrived and is marked,
++   * so it can be retried.
++   */
++  const answer = useCallback(
++    async (id: string) => {
++      const thread = threadsRef.current.find((item) => item.id === id);
++      if (!thread) return;
++
++      const { model, provider } = resolveCopilotModel();
++      const messages = buildChatMessages(buildContext(thread.selectionAnchor), thread.messages);
++      const controller = new AbortController();
++      aborters.set(id, controller);
++      setStreaming(id, true);
++
++      let content = '';
++      let error: string | undefined;
++      const createdAt = now();
++      const assistantMessage = (): DocumentAiCommentMessage => ({
++        content,
++        createdAt,
++        ...(error ? { error } : {}),
++        model,
++        provider,
++        role: 'assistant',
++      });
++      const writeAssistant = () =>
++        patchThread(id, (current) => ({
++          ...current,
++          messages: [...thread.messages, assistantMessage()],
++        }));
++      writeAssistant();
++
++      await chatService.fetchPresetTaskResult({
++        abortController: controller,
++        onError: (e) => {
++          error = e.message || 'error';
++        },
++        onFinish: async (text) => {
++          if (text) content = text;
++        },
++        onMessageHandle: (chunk) => {
++          if (chunk.type !== 'text') return;
++          content += chunk.text;
++          writeAssistant();
++        },
++        params: { messages: messages as any, model, provider, stream: true },
++        trigger: RequestTrigger.Chat,
++      });
++
++      aborters.delete(id);
++      if (removed.has(id)) return;
++      // A stopped answer keeps what arrived, like a finished one.
++      if (controller.signal.aborted) error = undefined;
++      if (!error && !content.trim()) {
++        error = t(
++          controller.signal.aborted
++            ? 'pageEditor.aiComments.stopped'
++            : 'pageEditor.aiComments.emptyAnswer',
++        );
++      }
++      writeAssistant();
++      setStreaming(id, false);
++
++      const finalMessages = [...thread.messages, assistantMessage()];
++      try {
++        await documentAiCommentService.updateMessages(id, finalMessages);
++      } catch {
++        toast.error(t('pageEditor.aiComments.saveFailed'));
++      }
++    },
++    [buildContext, patchThread, setStreaming, t],
++  );
++
++  /** Start a thread on the pending selection. An empty question asks for an explanation. */
++  const ask = useCallback(
++    async (anchor: DocumentCommentSelectionAnchor, question: string) => {
++      const firstMessage: DocumentAiCommentMessage = {
++        content: question.trim() || t('pageEditor.aiComments.defaultQuestion'),
++        createdAt: now(),
++        role: 'user',
++      };
++      const localId = `${LOCAL_PREFIX}${Date.now()}`;
++      setThreads((current) => [
++        ...current,
++        { id: localId, messages: [firstMessage], selectionAnchor: anchor },
++      ]);
++      setPendingCommentAnchor(undefined);
++
++      // Save the question first so the thread has a server id to keep the
++      // answer under, then stream the answer into it.
++      let id: string;
++      try {
++        const row = await documentAiCommentService.create({
++          documentId,
++          messages: [firstMessage],
++          selectionAnchor: anchor,
++        });
++        id = row.id;
++      } catch {
++        setThreads((current) => current.filter((thread) => thread.id !== localId));
++        setPendingCommentAnchor({ anchor, documentId });
++        toast.error(t('pageEditor.aiComments.saveFailed'));
++        return;
++      }
++      if (removed.has(localId)) {
++        void documentAiCommentService.delete(id).catch(() => {});
++        return;
++      }
++      setThreads((current) =>
++        current.map((thread) => (thread.id === localId ? { ...thread, id } : thread)),
++      );
++      await answer(id);
++      return id;
++    },
++    [answer, documentId, setPendingCommentAnchor, t],
++  );
++
++  const followUp = useCallback(
++    async (id: string, question: string) => {
++      const content = question.trim();
++      if (!content || streamingIds.has(id)) return;
++      const message: DocumentAiCommentMessage = { content, createdAt: now(), role: 'user' };
++      patchThread(id, (thread) => ({ ...thread, messages: [...thread.messages, message] }));
++      await answer(id);
++    },
++    [answer, patchThread, streamingIds],
++  );
++
++  /** Drop a failed answer and ask again. */
++  const retry = useCallback(
++    async (id: string) => {
++      const strip = (thread: AIThread) => {
++        const last = thread.messages.at(-1);
++        return last?.role === 'assistant' && last.error
++          ? { ...thread, messages: thread.messages.slice(0, -1) }
++          : thread;
++      };
++      patchThread(id, strip);
++      await answer(id);
++    },
++    [answer, patchThread],
++  );
++
++  const stop = useCallback((id: string) => {
++    aborters.get(id)?.abort();
++  }, []);
++
++  const remove = useCallback(
++    async (id: string) => {
++      removed.add(id);
++      aborters.get(id)?.abort();
++      aborters.delete(id);
++      setStreaming(id, false);
++      const previous = threadsRef.current;
++      setThreads((current) => current.filter((thread) => thread.id !== id));
++      if (id.startsWith(LOCAL_PREFIX)) return;
++      try {
++        await documentAiCommentService.delete(id);
++      } catch {
++        removed.delete(id);
++        setThreads(previous);
++        toast.error(t('pageEditor.aiComments.deleteFailed'));
++      }
++    },
++    [setStreaming, t],
++  );
++
++  const anchors = useMemo(
++    () => threads.map(({ id, selectionAnchor }) => ({ id, selectionAnchor })),
++    [threads],
++  );
++
++  return {
++    anchors,
++    ask,
++    documentId,
++    followUp,
++    isLoading,
++    load,
++    loadError,
++    remove,
++    retry,
++    stop,
++    streamingIds,
++    threads,
++  };
++};
++
++export type AICommentsState = ReturnType<typeof useAICommentsState>;
+diff --git a/src/features/PageEditor/Header/index.tsx b/src/features/PageEditor/Header/index.tsx
+index 186bb6ab..1b773b9b 100644
+--- a/src/features/PageEditor/Header/index.tsx
++++ b/src/features/PageEditor/Header/index.tsx
+@@ -29,6 +29,7 @@ import NavHeader from '@/features/NavHeader';
+ import ToggleRightPanelButton from '@/features/RightPanel/ToggleRightPanelButton';
+ import { usePermission } from '@/hooks/usePermission';
+ 
++import { useAIComments } from '../AIComments/context';
+ import { useDocumentComments } from '../DocumentComments/context';
+ import EditingIndicator from '../EditingIndicator';
+ import { useIsHtmlPage } from '../HtmlPageBody';
+@@ -68,6 +69,9 @@ const Header = memo(() => {
+   // Comments exist only for workspace documents with a comments panel to show
+   // them in; the provider is absent otherwise.
+   const comments = useDocumentComments();
++  // A personal page carries AI comments in their place (see `AIComments`).
++  const aiComments = useAIComments();
++  const commentsAvailable = comments?.panelAvailable || !!aiComments;
+   const [isCommentsPanelOpen, setCommentsPanelOpen] = usePageEditorStore((s) => [
+     s.commentsPanelOpen,
+     s.setCommentsPanelOpen,
+@@ -130,23 +134,23 @@ const Header = memo(() => {
+           >
+             <ActionIcon icon={MoreHorizontal} size={DESKTOP_HEADER_ICON_SMALL_SIZE} />
+           </DropdownMenu>
+-          {(comments?.panelAvailable || canExpandRightPanel) && (
++          {(commentsAvailable || canExpandRightPanel) && (
+             // The framed segment control only earns its frame with two
+             // segments; a lone toggle (a personal page has no comments, a
+             // viewer has no copilot) stays a plain icon.
+             <Flexbox
+               horizontal
++              className={commentsAvailable && canExpandRightPanel ? styles.panelSwitch : undefined}
+               gap={2}
+-              className={
+-                comments?.panelAvailable && canExpandRightPanel ? styles.panelSwitch : undefined
+-              }
+             >
+-              {comments?.panelAvailable && (
++              {commentsAvailable && (
+                 <ActionIcon
+                   active={isCommentsPanelOpen}
+                   icon={MessageSquareTextIcon}
+                   size={DESKTOP_HEADER_ICON_SMALL_SIZE}
+-                  title={t('pageEditor.comments.toggle')}
++                  title={t(
++                    aiComments ? 'pageEditor.aiComments.title' : 'pageEditor.comments.toggle',
++                  )}
+                   onClick={() => setCommentsPanelOpen(!isCommentsPanelOpen)}
+                 />
+               )}
+diff --git a/src/features/PageEditor/PageEditor.tsx b/src/features/PageEditor/PageEditor.tsx
+index 6d5db816..a5884a48 100644
+--- a/src/features/PageEditor/PageEditor.tsx
++++ b/src/features/PageEditor/PageEditor.tsx
+@@ -5,6 +5,7 @@ import { cssVar, Flexbox } from '@lobehub/ui';
+ import type { FC, ReactNode, UIEvent } from 'react';
+ import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+ 
++import { useActiveWorkspaceId } from '@/business/client/hooks/useActiveWorkspaceId';
+ import type { ComposerTarget } from '@/features/Conversation/types';
+ import DiffAllToolbar from '@/features/EditorCanvas/DiffAllToolbar';
+ import PageMetaBar from '@/features/PageEditor/PageMetaBar';
+@@ -14,6 +15,8 @@ import { usePermission } from '@/hooks/usePermission';
+ import { pageActions } from '@/store/page';
+ import { StyleSheet } from '@/utils/styles';
+ 
++import { AICommentsProvider } from './AIComments/context';
++import AICommentsPanel from './AIComments/Panel';
+ import { usePageCollabEligible, usePageCollabEnabled } from './collab/usePageCollab';
+ import DocumentComments from './DocumentComments';
+ import BlockCommentMarker from './DocumentComments/BlockCommentMarker';
+@@ -141,6 +144,8 @@ interface PageEditorCanvasProps {
+ const PageEditorCanvas = memo<PageEditorCanvasProps>((props) => {
+   const { askCopilotTarget, header, fullWidthHeader, rightPanel } = props;
+   const showRightPanel = rightPanel !== false;
++  const workspaceId = useActiveWorkspaceId();
++  const aiComments = !workspaceId && showRightPanel;
+   const editable = usePageEditable();
+   const editor = usePageEditorStore((s) => s.editor);
+   const documentId = usePageEditorStore((s) => s.documentId);
+@@ -406,14 +411,25 @@ const PageEditorCanvas = memo<PageEditorCanvasProps>((props) => {
+   // Comment state is hosted above every surface that reads it: the header's
+   // toggle, the list below the body and the panel beside it share one set of
+   // caches, and the panel's cards follow the body pane's scroll.
+-  const withComments = (node: ReactNode) => (
+-    <DocumentCommentsProvider
+-      documentId={documentId}
+-      paneRef={contentWrapperRef}
+-      panelAvailable={showRightPanel}
+-    >
+-      {node}
+-    </DocumentCommentsProvider>
++  //
++  // A page outside a Workspace has no human comments: its "Comment" action
++  // asks the AI, and the answers are the comments (see `AIComments`).
++  const withComments = (node: ReactNode) =>
++    aiComments ? (
++      <AICommentsProvider documentId={documentId}>{node}</AICommentsProvider>
++    ) : (
++      <DocumentCommentsProvider
++        documentId={documentId}
++        paneRef={contentWrapperRef}
++        panelAvailable={showRightPanel}
++      >
++        {node}
++      </DocumentCommentsProvider>
++    );
++  const commentsPanel = aiComments ? (
++    <AICommentsPanel paneRef={contentWrapperRef} />
++  ) : (
++    <DocumentCommentsPanel />
+   );
+ 
+   if (fullWidthHeader) {
+@@ -422,7 +438,7 @@ const PageEditorCanvas = memo<PageEditorCanvasProps>((props) => {
+         {headerSlot}
+         <Flexbox horizontal flex={1} style={{ minHeight: 0 }} width={'100%'}>
+           {editorPane}
+-          {showRightPanel && <DocumentCommentsPanel />}
++          {showRightPanel && commentsPanel}
+           {showRightPanel && <RightPanel />}
+         </Flexbox>
+       </Flexbox>,
+@@ -437,7 +453,7 @@ const PageEditorCanvas = memo<PageEditorCanvasProps>((props) => {
+       width={'100%'}
+     >
+       {editorPane}
+-      {showRightPanel && <DocumentCommentsPanel />}
++      {showRightPanel && commentsPanel}
+       {showRightPanel && <RightPanel />}
+     </Flexbox>,
+   );
+diff --git a/src/services/documentAiComment.ts b/src/services/documentAiComment.ts
+new file mode 100644
+index 00000000..ffa2eb15
+--- /dev/null
++++ b/src/services/documentAiComment.ts
+@@ -0,0 +1,21 @@
++import type { DocumentCommentSelectionAnchor } from '@lobechat/types';
++
++import type { DocumentAiCommentMessage } from '@/database/schemas/documentAiComment';
++import { lambdaClient } from '@/libs/trpc/client';
++
++class DocumentAiCommentService {
++  create = (input: {
++    documentId: string;
++    messages: DocumentAiCommentMessage[];
++    selectionAnchor: DocumentCommentSelectionAnchor;
++  }) => lambdaClient.documentAiComment.create.mutate(input);
++
++  delete = (id: string) => lambdaClient.documentAiComment.delete.mutate({ id });
++
++  list = (documentId: string) => lambdaClient.documentAiComment.list.query({ documentId });
++
++  updateMessages = (id: string, messages: DocumentAiCommentMessage[]) =>
++    lambdaClient.documentAiComment.updateMessages.mutate({ id, messages });
++}
++
++export const documentAiCommentService = new DocumentAiCommentService();

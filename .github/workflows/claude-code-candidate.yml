@@ -11,6 +11,7 @@ on:
       - 'claude-code-baseline.json'
       - 'scripts/prepare.py'
       - 'scripts/prepare-claude-code.py'
+      - 'scripts/prepare-ai-comments.py'
       - 'scripts/smoke-claude-code-app.mjs'
       - 'patches/**'
 
@@ -74,6 +75,7 @@ jobs:
           path: source
           persist-credentials: false
       - run: python3 config/scripts/prepare-claude-code.py source
+      - run: python3 config/scripts/prepare-ai-comments.py source
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
@@ -113,6 +115,11 @@ jobs:
       - name: Persistent state and isolation
         working-directory: source/packages/database
         run: pnpm exec vitest run src/models/__tests__/claudeCode.test.ts
+      - name: AI comments
+        working-directory: source
+        run: |
+          pnpm exec vitest run src/features/PageEditor/AIComments src/features/PageEditor/PageEditor.test.tsx
+          (cd packages/database && pnpm exec vitest run src/models/__tests__/documentAiComment.test.ts)
       - name: Preserve QQ behavior
         working-directory: source/packages/chat-adapter-qq
         run: pnpm exec vitest run --config vitest.config.mts src/adapter.test.ts src/passive-reply.test.ts
@@ -146,6 +153,7 @@ jobs:
           path: source
           persist-credentials: false
       - run: python3 config/scripts/prepare-claude-code.py source
+      - run: python3 config/scripts/prepare-ai-comments.py source
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with:
@@ -213,6 +221,9 @@ jobs:
 
   promote:
     needs: [decide, image]
+    # A run on another branch builds and checks run-specific images only; the
+    # tags production follows move from main alone.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     permissions:
       contents: write
