@@ -9,7 +9,7 @@
   "officialClaudeCode": "2.1.301",
   "featureFlag": "CLAUDE_CODE_SERVER_ENABLED",
   "defaultEnabled": false,
-  "verifiedAt": "2026-10-30",
+  "verifiedAt": "2026-10-31",
   "server": {
     "cpu": 4,
     "memoryMiB": 7947
