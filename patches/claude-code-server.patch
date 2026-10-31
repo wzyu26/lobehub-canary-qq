@@ -10655,10 +10655,10 @@ index 0000000000..45e6f06243
 +});
 diff --git a/packages/database/src/models/claudeCode.ts b/packages/database/src/models/claudeCode.ts
 new file mode 100644
-index 0000000000..c44909bc13
+index 0000000000..8d3cf1b1c2
 --- /dev/null
 +++ b/packages/database/src/models/claudeCode.ts
-@@ -0,0 +1,976 @@
+@@ -0,0 +1,979 @@
 +import { createHash } from 'node:crypto';
 +
 +import type {
@@ -10764,6 +10764,9 @@ index 0000000000..c44909bc13
 + * Private even inside a shared workspace. Never use buildWorkspaceWhere here:
 + * that helper deliberately grants workspace members shared content access.
 + */
++/** Long enough to ride out a brief network loss; a crashed worker is still detected by this. */
++const DEFAULT_RUN_LEASE_MS = 180_000;
++
 +export class ClaudeCodeModel {
 +  constructor(
 +    private readonly db: LobeChatDatabase,
@@ -10931,7 +10934,7 @@ index 0000000000..c44909bc13
 +    leaseToken: string,
 +    options: { leaseMs?: number; workerFreshMs?: number } = {},
 +  ) {
-+    const leaseMs = options.leaseMs ?? 60_000;
++    const leaseMs = options.leaseMs ?? DEFAULT_RUN_LEASE_MS;
 +    if (leaseToken.length < 32 || leaseMs < 1000 || leaseMs > 300_000)
 +      throw new ClaudeCodeStateError('invalid_lease', 'Invalid worker lease');
 +    return this.db.transaction(async (tx) => {
@@ -11106,7 +11109,7 @@ index 0000000000..c44909bc13
 +    });
 +  }
 +
-+  async heartbeat(runId: string, leaseToken: string, leaseMs = 60_000) {
++  async heartbeat(runId: string, leaseToken: string, leaseMs = DEFAULT_RUN_LEASE_MS) {
 +    if (leaseMs < 1000 || leaseMs > 300_000)
 +      throw new ClaudeCodeStateError('invalid_lease', 'Invalid heartbeat lease duration');
 +    return this.db.transaction(async (tx) => {
