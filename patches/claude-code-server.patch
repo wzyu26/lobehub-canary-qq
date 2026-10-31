@@ -4526,7 +4526,7 @@ index d30a41c355..583cff1c12 100644
    const { discovery, initialContext, prep } = await runOperationInit(
      {
 diff --git a/apps/server/src/services/aiAgent/pipeline/execTurn.ts b/apps/server/src/services/aiAgent/pipeline/execTurn.ts
-index 7a3d24ccd4..7068d19762 100644
+index ee13b5b226..6f5d97e3f4 100644
 --- a/apps/server/src/services/aiAgent/pipeline/execTurn.ts
 +++ b/apps/server/src/services/aiAgent/pipeline/execTurn.ts
 @@ -20,6 +20,10 @@ import type { AgentConfigWithId } from '@/server/services/agent';
@@ -4540,7 +4540,7 @@ index 7a3d24ccd4..7068d19762 100644
  import type { ComposioService } from '@/server/services/composio';
  import { DocumentService } from '@/server/services/document';
  import type { MarketService } from '@/server/services/market';
-@@ -283,6 +287,8 @@ export const execAgentTurn = async (
+@@ -284,6 +288,8 @@ export const execAgentTurn = async (
    // flags, tools engine, context snapshot) reads it.
    if (shareGate) applyShareGateToAgentConfig(agentConfig);
  
@@ -4549,7 +4549,7 @@ index 7a3d24ccd4..7068d19762 100644
    let resumeParentMessage: Awaited<ReturnType<MessageModel['findById']>>;
  
    // `resumeApproval` implies the same "load parent message + skip user
-@@ -455,6 +461,17 @@ export const execAgentTurn = async (
+@@ -457,6 +463,17 @@ export const execAgentTurn = async (
      topicId,
    } = turn;
  
@@ -4567,7 +4567,7 @@ index 7a3d24ccd4..7068d19762 100644
    // Shared context for the extracted execAgent pipeline stages
    // (`pipeline/*`). Built after the turn rows exist so every stage sees the
    // persisted anchors; `agentConfig` stays the same mutable object so stage
-@@ -600,7 +617,7 @@ export const execAgentTurn = async (
+@@ -602,7 +619,7 @@ export const execAgentTurn = async (
      approvalOwnerAssistantId,
      approvedToolEntries,
      attachedFileIds,
@@ -4576,14 +4576,16 @@ index 7a3d24ccd4..7068d19762 100644
      disableSelfFeedbackIntentTool: params.disableSelfFeedbackIntentTool,
      disableTools: params.disableTools,
      ephemeralUserMessage,
-@@ -610,14 +627,14 @@ export const execAgentTurn = async (
+@@ -612,15 +629,15 @@ export const execAgentTurn = async (
      functionTools,
      globalMemoryEnabled,
      hasMentionedAgents,
 -    isFixedDeviceTarget: turn.isFixedDeviceTarget,
 -    localDeviceId,
+-    requireDevice,
 +    isFixedDeviceTarget: claudeCodeServerOnly ? false : turn.isFixedDeviceTarget,
 +    localDeviceId: claudeCodeServerOnly ? undefined : localDeviceId,
++    requireDevice: claudeCodeServerOnly ? undefined : requireDevice,
      mentionedAgents,
      parentMessageId,
      prompt,
@@ -4594,7 +4596,7 @@ index 7a3d24ccd4..7068d19762 100644
      resumeApproval,
      resumeApprovalPlugin,
      resumeApprovals,
-@@ -627,7 +644,7 @@ export const execAgentTurn = async (
+@@ -630,7 +647,7 @@ export const execAgentTurn = async (
      runAttachments,
      selectedSkillIds,
      selectedToolIds,
@@ -4603,7 +4605,7 @@ index 7a3d24ccd4..7068d19762 100644
      viewedGoal: appContext?.viewedGoal,
    });
  
-@@ -716,7 +733,7 @@ export const execAgentTurn = async (
+@@ -719,7 +736,7 @@ export const execAgentTurn = async (
  
    // 19. Create the operation via AgentRuntimeService, persist the reconnect
    // marker, and mint the gateway token (see `pipeline/startOperation`).
@@ -4612,7 +4614,7 @@ index 7a3d24ccd4..7068d19762 100644
      startOperation(
        {
          agentRuntimeService: deps.agentRuntimeService,
-@@ -734,7 +751,7 @@ export const execAgentTurn = async (
+@@ -737,7 +754,7 @@ export const execAgentTurn = async (
          approvalClaim,
          approvalSourceOperationId,
          approvalSourceToolMessageIds,
@@ -4621,7 +4623,7 @@ index 7a3d24ccd4..7068d19762 100644
          onOperationCreated: params.onOperationCreated,
          botContext,
          botPlatformContext,
-@@ -771,4 +788,33 @@ export const execAgentTurn = async (
+@@ -774,4 +791,33 @@ export const execAgentTurn = async (
        },
      ),
    );
@@ -4757,7 +4759,7 @@ index 0000000000..4571eaf378
 +  });
 +});
 diff --git a/apps/server/src/services/aiAgent/pipeline/turnSetup.ts b/apps/server/src/services/aiAgent/pipeline/turnSetup.ts
-index bef358409f..5079138ac0 100644
+index 573c19b7c9..c78e8f59ce 100644
 --- a/apps/server/src/services/aiAgent/pipeline/turnSetup.ts
 +++ b/apps/server/src/services/aiAgent/pipeline/turnSetup.ts
 @@ -31,6 +31,7 @@ import { resolveModelExtendParamsForUser } from '@/server/modules/AgentRuntime/a
@@ -4778,7 +4780,7 @@ index bef358409f..5079138ac0 100644
    const heteroModel = heterogeneousProvider
      ? resolveHeterogeneousProviderTopicModel(heterogeneousProvider)
      : undefined;
-@@ -517,6 +519,8 @@ export const setupTurn = async (
+@@ -543,6 +545,8 @@ export const setupTurn = async (
    const nativeProviderOverride = heterogeneousProvider
      ? heterogeneousModelOverride?.provider
      : providerOverride;
@@ -4787,7 +4789,7 @@ index bef358409f..5079138ac0 100644
    let topicEditingGroupId: string | undefined;
  
    // Share-visitor fail-closed gate — reject a heterogeneous (Claude Code /
-@@ -525,7 +529,11 @@ export const setupTurn = async (
+@@ -551,7 +555,11 @@ export const setupTurn = async (
    // agent-level config, before any topic-pinned model override) rather than
    // at the later hetero-detection site (`isHeteroAgent`) so it runs ahead of
    // ALL row creation, not just the message rows.
@@ -4800,7 +4802,7 @@ index bef358409f..5079138ac0 100644
      throw new TRPCError({
        code: 'FORBIDDEN',
        message: ChatErrorType.ShareHeterogeneousAgentUnsupported,
-@@ -538,6 +546,7 @@ export const setupTurn = async (
+@@ -564,6 +572,7 @@ export const setupTurn = async (
    };
    /** Pin the run to the device a project directory lives on — only it can honour the run. */
    const routeToProjectDirectory = async (directory: { deviceId: string | null }) => {
@@ -4808,7 +4810,7 @@ index bef358409f..5079138ac0 100644
      if (
        agentConfig.agencyConfig?.executionTargetSelectionPolicy === 'fixed' &&
        agentConfig.agencyConfig.boundDeviceId !== directory.deviceId
-@@ -683,19 +692,6 @@ export const setupTurn = async (
+@@ -710,19 +719,6 @@ export const setupTurn = async (
          taskId: operationTaskId,
          topicProjectId: existingTopic?.projectId ?? null,
        });
@@ -4828,7 +4830,7 @@ index bef358409f..5079138ac0 100644
        // Fail-closed guard: a non-share run must never operate on a share-visitor
        // topic. `findById` is ownership-scoped but deliberately does NOT exclude
        // visitor topics (see its JSDoc) — they carry the CREATOR's own userId for
-@@ -729,6 +725,17 @@ export const setupTurn = async (
+@@ -756,6 +752,17 @@ export const setupTurn = async (
            topicId,
          );
        }
@@ -4846,7 +4848,7 @@ index bef358409f..5079138ac0 100644
        // Effort and speed pins live in metadata and are independent of the model
        // pin (a runtime without a model selector can still pin them). They belong
        // to the topic's own agent for the same reason as the model pin.
-@@ -758,6 +765,7 @@ export const setupTurn = async (
+@@ -792,6 +799,7 @@ export const setupTurn = async (
        // A project-directory topic already routed to its directory's device above.
        if (
          !requestedDeviceId &&
@@ -4854,7 +4856,7 @@ index bef358409f..5079138ac0 100644
          !existingTopic?.projectWorkingDirectoryId &&
          topicPinnedDeviceId &&
          !isFixedExecutionTargetSelection &&
-@@ -771,7 +779,7 @@ export const setupTurn = async (
+@@ -805,7 +813,7 @@ export const setupTurn = async (
  
        // Re-assert the share restriction after topic overrides are applied.
        // Heterogeneous agents are not available for shared visitor runs.
@@ -4863,7 +4865,7 @@ index bef358409f..5079138ac0 100644
          throw new TRPCError({
            code: 'FORBIDDEN',
            message: ChatErrorType.ShareHeterogeneousAgentUnsupported,
-@@ -826,6 +834,16 @@ export const setupTurn = async (
+@@ -860,6 +868,16 @@ export const setupTurn = async (
    // chat) and stops the device list from leaking into the LLM context.
    const { canUseDevice, reason: deviceAccessReason } = resolveDeviceAccessPolicy({
      botContext,
@@ -4880,7 +4882,7 @@ index bef358409f..5079138ac0 100644
      shareVisitor: !!shareGate,
    });
    log(
-@@ -839,7 +857,8 @@ export const setupTurn = async (
+@@ -873,7 +891,8 @@ export const setupTurn = async (
    // the UI), fall back to the legacy `model` field for backwards compatibility
    // (shared with the inbox write guard via `isHeterogeneousAgentModelId`).
    const heteroProviderType = agentConfig.agencyConfig?.heterogeneousProvider?.type;
