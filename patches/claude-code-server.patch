@@ -274,10 +274,10 @@ index 0000000000..7c0a43986c
 +limits require the staged deployment acceptance suite before enabling users.
 diff --git a/apps/claude-code-worker/__tests__/startup.integration.test.ts b/apps/claude-code-worker/__tests__/startup.integration.test.ts
 new file mode 100644
-index 0000000000..9ed2fcd85e
+index 0000000000..5bddc48cb0
 --- /dev/null
 +++ b/apps/claude-code-worker/__tests__/startup.integration.test.ts
-@@ -0,0 +1,68 @@
+@@ -0,0 +1,89 @@
 +import { spawnSync } from 'node:child_process';
 +import { cp, mkdtemp, readFile, rm } from 'node:fs/promises';
 +import { tmpdir } from 'node:os';
@@ -297,8 +297,11 @@ index 0000000000..9ed2fcd85e
 +afterEach(async () => {
 +  for (const directory of temporaryDirectories.splice(0)) {
 +    // Only remove the exact absolute mkdtemp directories created by this test.
-+    if (!path.isAbsolute(directory) || path.dirname(directory) !== path.resolve(tmpdir()) ||
-+        !path.basename(directory).startsWith('claude-worker-startup-')) {
++    if (
++      !path.isAbsolute(directory) ||
++      path.dirname(directory) !== path.resolve(tmpdir()) ||
++      !path.basename(directory).startsWith('claude-worker-startup-')
++    ) {
 +      throw new Error('Unexpected startup test cleanup path');
 +    }
 +    await rm(directory, { force: true, recursive: true });
@@ -310,7 +313,9 @@ index 0000000000..9ed2fcd85e
 +    // setup-bun adds its binary to PATH. Resolve it before the real startup
 +    // intentionally drops PATH along with all credentials and configuration.
 +    const located = spawnSync(configuredBun, ['-e', 'process.stdout.write(process.execPath)'], {
-+      cwd: workerRoot, encoding: 'utf8', timeout: 15_000,
++      cwd: workerRoot,
++      encoding: 'utf8',
++      timeout: 15_000,
 +    });
 +    expect(located.error).toBeUndefined();
 +    expect(located.status, located.stderr).toBe(0);
@@ -318,31 +323,47 @@ index 0000000000..9ed2fcd85e
 +    expect(path.isAbsolute(bun)).toBe(true);
 +    const directory = await temporaryDirectory();
 +    const built = spawnSync(bun, [path.join(workerRoot, 'scripts/buildWorker.mjs'), directory], {
-+      cwd: workerRoot, encoding: 'utf8', timeout: 30_000,
++      cwd: workerRoot,
++      encoding: 'utf8',
++      timeout: 30_000,
 +    });
 +    expect(built.error).toBeUndefined();
 +    expect(built.status, built.stderr).toBe(0);
-+    const runtime = JSON.parse(await readFile(path.join(directory, 'node_modules/zod/package.json'), 'utf8'));
++    const runtime = JSON.parse(
++      await readFile(path.join(directory, 'node_modules/zod/package.json'), 'utf8'),
++    );
 +    expect(runtime.name).toBe('zod');
 +    const started = spawnSync(bun, ['--no-install', path.join(directory, 'index.js')], {
-+      cwd: directory, encoding: 'utf8', env: {}, timeout: 15_000,
++      cwd: directory,
++      encoding: 'utf8',
++      env: {},
++      timeout: 15_000,
 +    });
 +    expect(started.error).toBeUndefined();
 +    expect(started.status, started.stderr).toBe(1);
 +    expect(started.stdout).toBe('');
-+    expect(started.stderr.trim()).toBe('Claude Code worker could not start; check its deployment configuration');
++    expect(started.stderr.trim()).toBe(
++      'Claude Code worker could not start; check its deployment configuration',
++    );
 +
 +    // The smoke must also detect a packaging regression where Docker copies
 +    // only index.js and silently omits the external runtime dependency.
 +    const missingRuntime = await temporaryDirectory();
 +    await cp(path.join(directory, 'index.js'), path.join(missingRuntime, 'index.js'));
-+    const incomplete = spawnSync(bun, [
-+      '--no-install',
-+      path.join(workerRoot, 'scripts/smokeWorkerStartup.mjs'), path.join(missingRuntime, 'index.js'),
-+    ], { cwd: missingRuntime, encoding: 'utf8', timeout: 15_000 });
++    const incomplete = spawnSync(
++      bun,
++      [
++        '--no-install',
++        path.join(workerRoot, 'scripts/smokeWorkerStartup.mjs'),
++        path.join(missingRuntime, 'index.js'),
++      ],
++      { cwd: missingRuntime, encoding: 'utf8', timeout: 15_000 },
++    );
 +    expect(incomplete.error).toBeUndefined();
 +    expect(incomplete.status).not.toBe(0);
-+    expect(incomplete.stderr).toContain('Worker module startup failed before safe configuration validation');
++    expect(incomplete.stderr).toContain(
++      'Worker module startup failed before safe configuration validation',
++    );
 +    expect(incomplete.stderr).toMatch(/Cannot find (?:package|module) ['"]zod['"]/);
 +  }, 60_000);
 +});
@@ -756,10 +777,10 @@ index 0000000000..0a487da315
 +}
 diff --git a/apps/claude-code-worker/scripts/buildWorker.mjs b/apps/claude-code-worker/scripts/buildWorker.mjs
 new file mode 100644
-index 0000000000..4a5ef06f37
+index 0000000000..142afa4c07
 --- /dev/null
 +++ b/apps/claude-code-worker/scripts/buildWorker.mjs
-@@ -0,0 +1,28 @@
+@@ -0,0 +1,35 @@
 +import { spawnSync } from 'node:child_process';
 +import { cp, mkdir, realpath } from 'node:fs/promises';
 +import { createRequire } from 'node:module';
@@ -772,10 +793,17 @@ index 0000000000..4a5ef06f37
 +const outputDirectory = path.resolve(process.argv[2] ?? path.join(workerRoot, 'dist'));
 +// Bun 1.4.4 can evaluate the MCP schema module before bundled Zod constructors
 +// initialize. Keep Zod's own ESM boundaries and ship the installed package.
-+const built = spawnSync(process.execPath, [
-+  'build', path.join(workerRoot, 'src/index.ts'), '--target=bun', '--external=zod',
-+  `--outdir=${outputDirectory}`,
-+], { cwd: workerRoot, stdio: 'inherit' });
++const built = spawnSync(
++  process.execPath,
++  [
++    'build',
++    path.join(workerRoot, 'src/index.ts'),
++    '--target=bun',
++    '--external=zod',
++    `--outdir=${outputDirectory}`,
++  ],
++  { cwd: workerRoot, stdio: 'inherit' },
++);
 +if (built.error || built.status !== 0) throw new Error('Worker bundle build failed');
 +
 +const require = createRequire(import.meta.url);
@@ -790,10 +818,10 @@ index 0000000000..4a5ef06f37
 +console.info('Worker bundle and runtime dependency startup verified');
 diff --git a/apps/claude-code-worker/scripts/smokeWorkerStartup.mjs b/apps/claude-code-worker/scripts/smokeWorkerStartup.mjs
 new file mode 100644
-index 0000000000..ebf01a777d
+index 0000000000..7ebefc246d
 --- /dev/null
 +++ b/apps/claude-code-worker/scripts/smokeWorkerStartup.mjs
-@@ -0,0 +1,32 @@
+@@ -0,0 +1,39 @@
 +import { spawnSync } from 'node:child_process';
 +import path from 'node:path';
 +import { fileURLToPath } from 'node:url';
@@ -810,14 +838,21 @@ index 0000000000..ebf01a777d
 +    cwd: path.dirname(absoluteEntrypoint),
 +    encoding: 'utf8',
 +    // Never inherit service tokens, Claude credentials or network configuration.
-+    env: process.platform === 'win32' && process.env.SystemRoot
-+      ? { SystemRoot: process.env.SystemRoot }
-+      : {},
++    env:
++      process.platform === 'win32' && process.env.SystemRoot
++        ? { SystemRoot: process.env.SystemRoot }
++        : {},
 +    timeout: 15_000,
 +  });
-+  if (result.error || result.status !== 1 || result.stdout.trim() !== '' ||
-+      result.stderr.trim() !== configurationError) {
-+    throw new Error(`Worker module startup failed before safe configuration validation\n${result.stderr ?? ''}`);
++  if (
++    result.error ||
++    result.status !== 1 ||
++    result.stdout.trim() !== '' ||
++    result.stderr.trim() !== configurationError
++  ) {
++    throw new Error(
++      `Worker module startup failed before safe configuration validation\n${result.stderr ?? ''}`,
++    );
 +  }
 +};
 +
@@ -3909,10 +3944,10 @@ index 0000000000..07ee7272b8
 +  ),
 +});
 diff --git a/apps/server/src/routers/lambda/index.ts b/apps/server/src/routers/lambda/index.ts
-index a1204623bd..8d464b2a16 100644
+index f9ef80cfee..bfff5f9ac1 100644
 --- a/apps/server/src/routers/lambda/index.ts
 +++ b/apps/server/src/routers/lambda/index.ts
-@@ -50,6 +50,7 @@ import { canvasRouter } from './canvas';
+@@ -51,6 +51,7 @@ import { canvasRouter } from './canvas';
  import { changelogRouter } from './changelog';
  import { channelRouter } from './channel';
  import { chunkRouter } from './chunk';
@@ -3920,7 +3955,7 @@ index a1204623bd..8d464b2a16 100644
  import { comfyuiRouter } from './comfyui';
  import { composioRouter } from './composio';
  import { configRouter } from './config';
-@@ -154,6 +155,7 @@ export const lambdaRouter = router({
+@@ -156,6 +157,7 @@ export const lambdaRouter = router({
    asr: asrRouter,
    tts: ttsRouter,
    chunk: chunkRouter,
@@ -9595,10 +9630,10 @@ index 4ec44df01d..1fad49cead 100644
    const originalServiceUserId = process.env.MEMORY_EXTRACTION_HOURLY_TASK_USER_ID;
    const originalQstashToken = process.env.QSTASH_TOKEN;
 diff --git a/apps/server/src/services/memory/userMemory/extract/workflow.ts b/apps/server/src/services/memory/userMemory/extract/workflow.ts
-index a5a426b968..7689588012 100644
+index cf4139feaa..a2c15c0792 100644
 --- a/apps/server/src/services/memory/userMemory/extract/workflow.ts
 +++ b/apps/server/src/services/memory/userMemory/extract/workflow.ts
-@@ -53,6 +53,9 @@ const getProcessUserTopicsFlowControl = (): FlowControl => {
+@@ -54,6 +54,9 @@ const getProcessUserTopicsFlowControl = (): FlowControl => {
  const buildHourlyChildWorkflowRunId = (entryWorkflowRunId: string) =>
    `memory-user-memory-hourly-${entryWorkflowRunId.replaceAll(/[^\w-]/g, '_')}`;
  
@@ -9608,7 +9643,7 @@ index a5a426b968..7689588012 100644
  const getWorkflowUrl = (path: string, baseUrl: string) => {
    const url = new URL(path, baseUrl);
  
-@@ -247,7 +250,7 @@ export class MemoryExtractionWorkflowService {
+@@ -248,7 +251,7 @@ export class MemoryExtractionWorkflowService {
      return this.getClient().trigger({
        body: payload,
        flowControl: {
@@ -9617,7 +9652,7 @@ index a5a426b968..7689588012 100644
          // NOTICE: Each process-topics workflow currently invokes topic workflows sequentially.
          // Parallelism 20 therefore bounds each user's active topic extraction workflows to 20.
          // If process-topics changes back to parallel per-topic invoke, divide this number by
-@@ -276,7 +279,7 @@ export class MemoryExtractionWorkflowService {
+@@ -277,7 +280,7 @@ export class MemoryExtractionWorkflowService {
        // monopolize extraction. Serve-side flow control (processTopicWorkflowOptions) additionally
        // keeps this workflow's own step-continuation messages out of the shared "$" (unbound) bucket.
        flowControl: {
@@ -9626,7 +9661,7 @@ index a5a426b968..7689588012 100644
          parallelism: 5,
        } satisfies FlowControl,
        headers: options?.extraHeaders,
-@@ -297,7 +300,7 @@ export class MemoryExtractionWorkflowService {
+@@ -320,7 +323,7 @@ export class MemoryExtractionWorkflowService {
      return this.getClient().trigger({
        body: { hourlyTaskId: options?.hourlyTaskId, userIds: [userId] },
        flowControl: {
@@ -9636,10 +9671,10 @@ index a5a426b968..7689588012 100644
        } satisfies FlowControl,
        headers: options?.extraHeaders,
 diff --git a/docs/development/database-schema.dbml b/docs/development/database-schema.dbml
-index 4b055abab8..8c4974a637 100644
+index 3a5ec36ade..d5cd7672ef 100644
 --- a/docs/development/database-schema.dbml
 +++ b/docs/development/database-schema.dbml
-@@ -1493,6 +1493,87 @@ table chat_groups_agents {
+@@ -1492,6 +1492,87 @@ table chat_groups_agents {
    }
  }
  
@@ -9728,7 +9763,7 @@ index 4b055abab8..8c4974a637 100644
    id uuid [pk, not null, default: `gen_random_uuid()`]
    user_connector_id uuid [not null]
 diff --git a/locales/en-US/chat.json b/locales/en-US/chat.json
-index 7560f13fca..c0bf40e706 100644
+index 402419ff7c..290711d8cf 100644
 --- a/locales/en-US/chat.json
 +++ b/locales/en-US/chat.json
 @@ -135,6 +135,14 @@
@@ -9761,7 +9796,7 @@ index 5832d5c74e..c36cbbd85c 100644
    "cohere.description": "Cohere delivers cutting-edge multilingual models, advanced retrieval, and AI workspaces for modern enterprises—all in one secure platform.",
    "cometapi.description": "CometAPI provides access to frontier models from OpenAI, Anthropic, Google, and more, letting users choose the best model and pricing for diverse use cases.",
 diff --git a/locales/zh-CN/chat.json b/locales/zh-CN/chat.json
-index f6edd83eaf..05b4ce4024 100644
+index 55da3d86b8..0844f13035 100644
 --- a/locales/zh-CN/chat.json
 +++ b/locales/zh-CN/chat.json
 @@ -135,6 +135,14 @@
@@ -13142,7 +13177,7 @@ index 953705daef..ee36143fcc 100644
    const startedAt = Date.now();
    const proc = spawnManaged(cliSpawnPlan.command, cliSpawnPlan.args, {
 diff --git a/packages/locales/src/default/chat.ts b/packages/locales/src/default/chat.ts
-index 46c719ed43..dc35ac6294 100644
+index 60bdb88ac0..306dc12959 100644
 --- a/packages/locales/src/default/chat.ts
 +++ b/packages/locales/src/default/chat.ts
 @@ -1,4 +1,14 @@
@@ -13347,7 +13382,7 @@ index a83205b483..48e50e0f8d 100644
  export * from './creds';
  export * from './dashboard';
 diff --git a/pnpm-workspace.yaml b/pnpm-workspace.yaml
-index 40392a3008..8dbc89f205 100644
+index 55bb8902eb..45220e2af0 100644
 --- a/pnpm-workspace.yaml
 +++ b/pnpm-workspace.yaml
 @@ -24,6 +24,7 @@ packages:
@@ -14005,7 +14040,7 @@ index 0000000000..104db0860f
 +  return { ...response, enabledList };
 +};
 diff --git a/src/libs/swr/keys.ts b/src/libs/swr/keys.ts
-index 3023de7e68..816d8e743d 100644
+index 44781106e3..434bfd2b74 100644
 --- a/src/libs/swr/keys.ts
 +++ b/src/libs/swr/keys.ts
 @@ -53,6 +53,10 @@ export const channelKeys = {
@@ -14574,7 +14609,7 @@ index 84ecded66e..73dff01305 100644
      // A cold/GC'd run still uses the card's captured context, never the active tab.
      const operationAlive = !!operation;
 diff --git a/src/store/chat/slices/agentRun/actions/entries/conversationLifecycle/index.ts b/src/store/chat/slices/agentRun/actions/entries/conversationLifecycle/index.ts
-index e0aa2e7b7f..f7bb787ffe 100644
+index 31e7022808..2b61434ec5 100644
 --- a/src/store/chat/slices/agentRun/actions/entries/conversationLifecycle/index.ts
 +++ b/src/store/chat/slices/agentRun/actions/entries/conversationLifecycle/index.ts
 @@ -1,7 +1,7 @@
@@ -14594,8 +14629,8 @@ index e0aa2e7b7f..f7bb787ffe 100644
  import { buildRunLifecycle } from '@/store/chat/slices/agentRun/actions/lifecycle/buildRunLifecycle';
  import {
    findOrphanedQueueKey,
-@@ -456,15 +457,13 @@ export class ConversationLifecycleActionImpl {
-     const { stagedDirectory } = projectRun;
+@@ -455,15 +456,13 @@ export class ConversationLifecycleActionImpl {
+     const { newTopicProject, stagedDirectory, stagedProjectId } = projectRun;
      if (stagedDirectory) consumePendingTopicRepos(ownerAgentId); // a cloud repo pick conflicts
  
 -    // Legacy agents may only carry `model: '<cli-type>'`. Keep gateway routing
@@ -14617,7 +14652,7 @@ index e0aa2e7b7f..f7bb787ffe 100644
      const runtimeType = selectRuntimeType({
        boundDeviceId: agencyConfig?.boundDeviceId,
        executionTarget: agencyConfig?.executionTarget,
-@@ -475,6 +474,7 @@ export class ConversationLifecycleActionImpl {
+@@ -474,6 +473,7 @@ export class ConversationLifecycleActionImpl {
        // started server-side via runTask) pass `forceRuntime` to override
        // the agent's local/cloud preference.
        parentRuntime: forceRuntime,

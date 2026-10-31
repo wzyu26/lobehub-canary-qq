@@ -16,8 +16,11 @@ patch = root / 'patches/claude-code-server.patch'
 digest = hashlib.sha256(patch.read_bytes()).hexdigest()
 if digest != baseline['patchSha256']:
     raise SystemExit('Candidate patch differs from the recorded, validated source.')
-subprocess.run(['git', '-C', str(source), 'apply', '--check', str(patch)], check=True)
-subprocess.run(['git', '-C', str(source), 'apply', str(patch)], check=True)
+# The patch was cut against this upstream commit. Its blobs let an upstream edit nearby merge
+# instead of stopping the build; a real conflict still fails here, and the tests still gate it.
+subprocess.run(['git', '-C', str(source), 'fetch', '--depth', '1', 'origin', baseline['upstream']],
+               check=True)
+subprocess.run(['git', '-C', str(source), 'apply', '--3way', str(patch)], check=True)
 
 # drizzle runs only migrations newer than the database's latest timestamp. Taking the
 # next millisecond after upstream, rather than the build time, keeps later upstream
