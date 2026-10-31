@@ -104,10 +104,10 @@ index f9ef80cf..98c96e88 100644
    documentLike: documentLikeRouter,
    exporter: exporterRouter,
 diff --git a/locales/en-US/file.json b/locales/en-US/file.json
-index b391c74d..3edf61e7 100644
+index b391c74d..53924435 100644
 --- a/locales/en-US/file.json
 +++ b/locales/en-US/file.json
-@@ -281,6 +281,23 @@
+@@ -281,6 +281,25 @@
    "pageEditor.agentUnavailable.noGateway": "The Agent can't edit pages until Gateway Mode is on. Ask your admin to turn it on.",
    "pageEditor.agentUnavailable.sandboxUnconfigured": "The Agent can't edit pages until a sandbox is configured. Ask your admin to set one up.",
    "pageEditor.agentUnavailable.viewDocs": "View docs",
@@ -118,6 +118,8 @@ index b391c74d..3edf61e7 100644
 +  "pageEditor.aiComments.empty": "Select text in the page and click “Comment” to ask the AI about it.",
 +  "pageEditor.aiComments.emptyAnswer": "The AI returned no answer.",
 +  "pageEditor.aiComments.failed": "No answer",
++  "pageEditor.aiComments.model": "Answering model",
++  "pageEditor.aiComments.modelAuto": "Auto (follows the assistant)",
 +  "pageEditor.aiComments.placeholder": "Ask the AI about this passage… (leave empty to have it explained)",
 +  "pageEditor.aiComments.replyPlaceholder": "Ask a follow-up…",
 +  "pageEditor.aiComments.retry": "Retry",
@@ -132,10 +134,10 @@ index b391c74d..3edf61e7 100644
    "pageEditor.autoSaveMessage": "Your page is saved automatically. No need to save manually.",
    "pageEditor.chooseIcon": "Choose Icon",
 diff --git a/locales/zh-CN/file.json b/locales/zh-CN/file.json
-index a52800c2..b6e2da9a 100644
+index a52800c2..755de3da 100644
 --- a/locales/zh-CN/file.json
 +++ b/locales/zh-CN/file.json
-@@ -281,6 +281,23 @@
+@@ -281,6 +281,25 @@
    "pageEditor.agentUnavailable.noGateway": "开启 Gateway 模式后，Agent 才能编辑页面。请联系管理员开启。",
    "pageEditor.agentUnavailable.sandboxUnconfigured": "配置沙箱后，Agent 才能编辑页面。请联系管理员配置。",
    "pageEditor.agentUnavailable.viewDocs": "查看文档",
@@ -146,6 +148,8 @@ index a52800c2..b6e2da9a 100644
 +  "pageEditor.aiComments.empty": "在正文中划选文字，点「评论」即可问 AI。",
 +  "pageEditor.aiComments.emptyAnswer": "AI 没有返回内容",
 +  "pageEditor.aiComments.failed": "回复失败",
++  "pageEditor.aiComments.model": "回答模型",
++  "pageEditor.aiComments.modelAuto": "自动（跟随助手）",
 +  "pageEditor.aiComments.placeholder": "问 AI 关于这段内容…（留空则让 AI 解释）",
 +  "pageEditor.aiComments.replyPlaceholder": "继续追问…",
 +  "pageEditor.aiComments.retry": "重试",
@@ -375,10 +379,10 @@ index 00000000..1136ff37
 +export type DocumentAiCommentItem = typeof documentAiComments.$inferSelect;
 +export type NewDocumentAiComment = typeof documentAiComments.$inferInsert;
 diff --git a/packages/locales/src/default/file.ts b/packages/locales/src/default/file.ts
-index 9086c9d9..3e3a4db2 100644
+index 9086c9d9..040d5598 100644
 --- a/packages/locales/src/default/file.ts
 +++ b/packages/locales/src/default/file.ts
-@@ -320,6 +320,25 @@ export default {
+@@ -320,6 +320,27 @@ export default {
    'pageEditor.artifactTag': 'Artifact',
    'pageEditor.autoSaveMessage': 'Your page is saved automatically. No need to save manually.',
    'pageEditor.chooseIcon': 'Choose Icon',
@@ -390,6 +394,8 @@ index 9086c9d9..3e3a4db2 100644
 +    'Select text in the page and click “Comment” to ask the AI about it.',
 +  'pageEditor.aiComments.emptyAnswer': 'The AI returned no answer.',
 +  'pageEditor.aiComments.failed': 'No answer',
++  'pageEditor.aiComments.model': 'Answering model',
++  'pageEditor.aiComments.modelAuto': 'Auto (follows the assistant)',
 +  'pageEditor.aiComments.placeholder':
 +    'Ask the AI about this passage… (leave empty to have it explained)',
 +  'pageEditor.aiComments.replyPlaceholder': 'Ask a follow-up…',
@@ -503,12 +509,74 @@ index 00000000..3d94cc2c
 +AskComposer.displayName = 'AICommentAskComposer';
 +
 +export default AskComposer;
+diff --git a/src/features/PageEditor/AIComments/ModelPicker.tsx b/src/features/PageEditor/AIComments/ModelPicker.tsx
+new file mode 100644
+index 00000000..e506da17
+--- /dev/null
++++ b/src/features/PageEditor/AIComments/ModelPicker.tsx
+@@ -0,0 +1,56 @@
++'use client';
++
++import { Flexbox, Text } from '@lobehub/ui';
++import { memo, useMemo } from 'react';
++import { useTranslation } from 'react-i18next';
++
++import ModelSelect from '@/features/ModelSelect';
++import { useAiInfraStore } from '@/store/aiInfra';
++
++import { AGENT_ONLY_PROVIDERS, useChosenCommentModel } from './commentModel';
++import { resolveDefaultCommentModel } from './useAICommentsState';
++
++/**
++ * Picks the model that answers AI comments. Unset, it follows the page
++ * copilot (skipping agent-only providers); the choice is kept per browser.
++ */
++const ModelPicker = memo(() => {
++  const { t } = useTranslation('file');
++  const [chosen, setChosen] = useChosenCommentModel();
++  const enabledList = useAiInfraStore((s) => s.enabledChatModelList);
++  const providerIds = useMemo(
++    () => (enabledList ?? []).map(({ id }) => id).filter((id) => !AGENT_ONLY_PROVIDERS.has(id)),
++    [enabledList],
++  );
++  const usable = chosen && !AGENT_ONLY_PROVIDERS.has(chosen.provider) ? chosen : undefined;
++  const value = usable ?? resolveDefaultCommentModel();
++
++  return (
++    <Flexbox horizontal align={'center'} gap={8} paddingBlock={6} paddingInline={12}>
++      <Text style={{ flex: 'none', fontSize: 12 }} type={'secondary'}>
++        {t('pageEditor.aiComments.model')}
++      </Text>
++      <ModelSelect
++        allowClear={Boolean(usable)}
++        placeholder={t('pageEditor.aiComments.modelAuto')}
++        popupWidth={360}
++        providerIds={providerIds}
++        size={'small'}
++        style={{ flex: 1, minWidth: 0 }}
++        value={value.model && value.provider ? value : undefined}
++        variant={'borderless'}
++        onChange={(next) => setChosen(next)}
++        onClear={() => setChosen(undefined)}
++      />
++      {!usable && (
++        <Text style={{ flex: 'none', fontSize: 12 }} type={'secondary'}>
++          {t('pageEditor.aiComments.modelAuto')}
++        </Text>
++      )}
++    </Flexbox>
++  );
++});
++
++ModelPicker.displayName = 'AICommentsModelPicker';
++
++export default ModelPicker;
 diff --git a/src/features/PageEditor/AIComments/Panel.tsx b/src/features/PageEditor/AIComments/Panel.tsx
 new file mode 100644
-index 00000000..4c2f0d28
+index 00000000..1dfb3db5
 --- /dev/null
 +++ b/src/features/PageEditor/AIComments/Panel.tsx
-@@ -0,0 +1,189 @@
+@@ -0,0 +1,191 @@
 +'use client';
 +
 +import { cx, Empty, Flexbox, Text } from '@lobehub/ui';
@@ -530,6 +598,7 @@ index 00000000..4c2f0d28
 +import { usePageEditorStore } from '../store';
 +import AskComposer from './Composer';
 +import { useAIComments } from './context';
++import ModelPicker from './ModelPicker';
 +import ThreadCard from './ThreadCard';
 +import type { AICommentsState } from './useAICommentsState';
 +
@@ -689,6 +758,7 @@ index 00000000..4c2f0d28
 +            />
 +          }
 +        />
++        <ModelPicker />
 +        <PanelBody paneRef={paneRef} state={state} />
 +      </Flexbox>
 +    </RightPanel>
@@ -828,6 +898,81 @@ index 00000000..73b8b39c
 +ThreadCard.displayName = 'AICommentThreadCard';
 +
 +export default ThreadCard;
+diff --git a/src/features/PageEditor/AIComments/commentModel.ts b/src/features/PageEditor/AIComments/commentModel.ts
+new file mode 100644
+index 00000000..851afb6c
+--- /dev/null
++++ b/src/features/PageEditor/AIComments/commentModel.ts
+@@ -0,0 +1,69 @@
++import { useCallback, useSyncExternalStore } from 'react';
++
++export interface CommentModel {
++  model: string;
++  provider: string;
++}
++
++/**
++ * Providers that only run as a full agent turn (the Claude Code server
++ * backend runs each turn in a CLI worker) and cannot answer a one-shot
++ * completion like an AI comment.
++ */
++export const AGENT_ONLY_PROVIDERS = new Set(['claude-code']);
++
++const STORAGE_KEY = 'lobe-page-ai-comment-model';
++const listeners = new Set<() => void>();
++let cached: CommentModel | undefined;
++let loaded = false;
++
++const parse = (raw: string | null): CommentModel | undefined => {
++  if (!raw) return undefined;
++  try {
++    const value = JSON.parse(raw) as Partial<CommentModel>;
++    if (typeof value?.model === 'string' && typeof value?.provider === 'string')
++      return { model: value.model, provider: value.provider };
++  } catch {
++    // ignore a malformed value
++  }
++  return undefined;
++};
++
++/** The model the user picked for AI comments in this browser, if any. */
++export const getChosenCommentModel = (): CommentModel | undefined => {
++  if (!loaded) {
++    loaded = true;
++    try {
++      cached = parse(globalThis.localStorage?.getItem(STORAGE_KEY) ?? null);
++    } catch {
++      cached = undefined;
++    }
++  }
++  return cached;
++};
++
++export const setChosenCommentModel = (value: CommentModel | undefined) => {
++  cached = value;
++  loaded = true;
++  try {
++    if (value) globalThis.localStorage?.setItem(STORAGE_KEY, JSON.stringify(value));
++    else globalThis.localStorage?.removeItem(STORAGE_KEY);
++  } catch {
++    // storage may be unavailable (private mode); the choice still holds for this session
++  }
++  listeners.forEach((listener) => listener());
++};
++
++const subscribe = (listener: () => void) => {
++  listeners.add(listener);
++  return () => listeners.delete(listener);
++};
++
++export const useChosenCommentModel = () => {
++  const chosen = useSyncExternalStore(subscribe, getChosenCommentModel, () => undefined);
++  const setChosen = useCallback(
++    (value: CommentModel | undefined) => setChosenCommentModel(value),
++    [],
++  );
++  return [chosen, setChosen] as const;
++};
 diff --git a/src/features/PageEditor/AIComments/context.tsx b/src/features/PageEditor/AIComments/context.tsx
 new file mode 100644
 index 00000000..cd5ef578
@@ -1098,15 +1243,20 @@ index 00000000..504c26f7
 +});
 diff --git a/src/features/PageEditor/AIComments/useAICommentsState.test.ts b/src/features/PageEditor/AIComments/useAICommentsState.test.ts
 new file mode 100644
-index 00000000..fff83fc4
+index 00000000..fd41d608
 --- /dev/null
 +++ b/src/features/PageEditor/AIComments/useAICommentsState.test.ts
-@@ -0,0 +1,179 @@
+@@ -0,0 +1,197 @@
 +import { act, renderHook, waitFor } from '@testing-library/react';
 +import { beforeEach, describe, expect, it, vi } from 'vitest';
 +
 +import { createStore } from '../store';
-+import { resolveCommentModel, useAICommentsState } from './useAICommentsState';
++import { setChosenCommentModel } from './commentModel';
++import {
++  resolveCommentModel,
++  resolveDefaultCommentModel,
++  useAICommentsState,
++} from './useAICommentsState';
 +
 +const pageStore = vi.hoisted(() => ({ current: undefined as any }));
 +vi.mock('../store', async (importOriginal) => {
@@ -1280,13 +1430,26 @@ index 00000000..fff83fc4
 +      provider: 'default-provider',
 +    });
 +  });
++
++  it('uses the model picked in the panel', () => {
++    setChosenCommentModel({ model: 'gpt-x', provider: 'openai' });
++    expect(resolveCommentModel()).toEqual({ model: 'gpt-x', provider: 'openai' });
++    setChosenCommentModel(undefined);
++    expect(resolveCommentModel()).toEqual(resolveDefaultCommentModel());
++  });
++
++  it('ignores a picked model that only runs as an agent turn', () => {
++    setChosenCommentModel({ model: 'opus', provider: 'claude-code' });
++    expect(resolveCommentModel()).toEqual(resolveDefaultCommentModel());
++    setChosenCommentModel(undefined);
++  });
 +});
 diff --git a/src/features/PageEditor/AIComments/useAICommentsState.ts b/src/features/PageEditor/AIComments/useAICommentsState.ts
 new file mode 100644
-index 00000000..30e59703
+index 00000000..ac4d980d
 --- /dev/null
 +++ b/src/features/PageEditor/AIComments/useAICommentsState.ts
-@@ -0,0 +1,353 @@
+@@ -0,0 +1,354 @@
 +'use client';
 +
 +import {
@@ -1312,6 +1475,7 @@ index 00000000..30e59703
 +
 +import { flattenEditorText, locateAnchor } from '../DocumentComments/anchor/textAnchor';
 +import { usePageEditorStore } from '../store';
++import { AGENT_ONLY_PROVIDERS, getChosenCommentModel } from './commentModel';
 +import { buildChatMessages, buildDocumentContext } from './prompt';
 +
 +export interface AIThread {
@@ -1331,13 +1495,6 @@ index 00000000..30e59703
 +});
 +
 +/**
-+ * Providers that only run as a full agent turn (the Claude Code server
-+ * backend runs each turn in a CLI worker) and cannot answer a one-shot
-+ * completion like this one.
-+ */
-+const AGENT_ONLY_PROVIDERS = new Set(['claude-code']);
-+
-+/**
 + * The model the page copilot ("Ask Lobe AI") talks to: the active agent, or
 + * the built-in page agent when the active one cannot drive a page (a group or
 + * an agent on an external runtime) — the same rule as `PageAgentProvider`.
@@ -1346,7 +1503,7 @@ index 00000000..30e59703
 + * the page agent, the default assistant and the system translation model
 + * answers instead.
 + */
-+export const resolveCommentModel = () => {
++export const resolveDefaultCommentModel = () => {
 +  const state = getAgentStoreState();
 +  const activeAgentId = state.activeAgentId;
 +  const pageAgentId = builtinAgentSelectors.pageAgentId(state);
@@ -1377,6 +1534,13 @@ index 00000000..30e59703
 +      ({ model, provider }) => model && provider && !AGENT_ONLY_PROVIDERS.has(provider),
 +    ) ?? candidates[0]
 +  );
++};
++
++/** The model the user picked in the panel, else the copilot-based default. */
++export const resolveCommentModel = () => {
++  const chosen = getChosenCommentModel();
++  if (chosen?.model && chosen.provider && !AGENT_ONLY_PROVIDERS.has(chosen.provider)) return chosen;
++  return resolveDefaultCommentModel();
 +};
 +
 +export const useAICommentsState = (documentId: string) => {

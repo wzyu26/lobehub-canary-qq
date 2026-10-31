@@ -11,8 +11,11 @@ root = pathlib.Path(__file__).resolve().parents[1]
 source = pathlib.Path(sys.argv[1]).resolve()
 patch = root / 'patches/ai-comments.patch'
 digest = hashlib.sha256(patch.read_bytes()).hexdigest()
-subprocess.run(['git', '-C', str(source), 'apply', '--check', str(patch)], check=True)
-subprocess.run(['git', '-C', str(source), 'apply', str(patch)], check=True)
+# The upstream commit the patch was cut against. Its blobs let a nearby upstream edit merge
+# three-way instead of stopping the build; a real conflict still fails here.
+BASE = '7134c0bba047e79c69d8844c1578fb868c872d4f'
+subprocess.run(['git', '-C', str(source), 'fetch', '--depth', '1', 'origin', BASE], check=True)
+subprocess.run(['git', '-C', str(source), 'apply', '--3way', str(patch)], check=True)
 
 # Same placement rule as the Claude Code migration: one millisecond after the
 # newest entry, so drizzle never skips it. The SQL is idempotent.
