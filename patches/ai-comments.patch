@@ -1098,15 +1098,15 @@ index 00000000..504c26f7
 +});
 diff --git a/src/features/PageEditor/AIComments/useAICommentsState.test.ts b/src/features/PageEditor/AIComments/useAICommentsState.test.ts
 new file mode 100644
-index 00000000..c241a5ad
+index 00000000..fff83fc4
 --- /dev/null
 +++ b/src/features/PageEditor/AIComments/useAICommentsState.test.ts
-@@ -0,0 +1,146 @@
+@@ -0,0 +1,179 @@
 +import { act, renderHook, waitFor } from '@testing-library/react';
 +import { beforeEach, describe, expect, it, vi } from 'vitest';
 +
 +import { createStore } from '../store';
-+import { useAICommentsState } from './useAICommentsState';
++import { resolveCommentModel, useAICommentsState } from './useAICommentsState';
 +
 +const pageStore = vi.hoisted(() => ({ current: undefined as any }));
 +vi.mock('../store', async (importOriginal) => {
@@ -1127,14 +1127,29 @@ index 00000000..c241a5ad
 +
 +vi.mock('@/services/documentAiComment', () => ({ documentAiCommentService: service }));
 +vi.mock('@/services/chat', () => ({ chatService: chat }));
++const agents = vi.hoisted(() => ({
++  current: {
++    'agent-1': { model: 'test-model', provider: 'test-provider' },
++    'page-agent': { model: 'page-model', provider: 'page-provider' },
++  } as Record<string, { model: string; provider: string }>,
++}));
 +vi.mock('@/store/agent', () => ({ getAgentStoreState: () => ({ activeAgentId: 'agent-1' }) }));
 +vi.mock('@/store/agent/selectors', () => ({
 +  agentByIdSelectors: {
-+    getAgentModelById: () => () => 'test-model',
-+    getAgentModelProviderById: () => () => 'test-provider',
++    getAgentModelById: (id: string) => () => agents.current[id]?.model,
++    getAgentModelProviderById: (id: string) => () => agents.current[id]?.provider,
 +    isAgentHeterogeneousById: () => () => false,
 +  },
 +  builtinAgentSelectors: { pageAgentId: () => 'page-agent' },
++}));
++vi.mock('@/store/user/store', () => ({ getUserStoreState: () => ({}) }));
++vi.mock('@/store/user/selectors', () => ({
++  settingsSelectors: {
++    defaultAgentConfig: () => ({ model: 'default-model', provider: 'default-provider' }),
++  },
++  systemAgentSelectors: {
++    translation: () => ({ model: 'translate-model', provider: 'translate-provider' }),
++  },
 +}));
 +vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 +
@@ -1248,12 +1263,30 @@ index 00000000..c241a5ad
 +    });
 +  });
 +});
++
++describe('resolveCommentModel', () => {
++  it("uses the copilot's model", () => {
++    expect(resolveCommentModel()).toEqual({ model: 'test-model', provider: 'test-provider' });
++  });
++
++  it('skips models that only run as an agent turn', () => {
++    agents.current = {
++      'agent-1': { model: 'opus', provider: 'claude-code' },
++      'page-agent': { model: 'sonnet', provider: 'claude-code' },
++    };
++
++    expect(resolveCommentModel()).toEqual({
++      model: 'default-model',
++      provider: 'default-provider',
++    });
++  });
++});
 diff --git a/src/features/PageEditor/AIComments/useAICommentsState.ts b/src/features/PageEditor/AIComments/useAICommentsState.ts
 new file mode 100644
-index 00000000..0ed2a0a0
+index 00000000..30e59703
 --- /dev/null
 +++ b/src/features/PageEditor/AIComments/useAICommentsState.ts
-@@ -0,0 +1,324 @@
+@@ -0,0 +1,353 @@
 +'use client';
 +
 +import {
@@ -1274,6 +1307,8 @@ index 00000000..0ed2a0a0
 +import { documentAiCommentService } from '@/services/documentAiComment';
 +import { getAgentStoreState } from '@/store/agent';
 +import { agentByIdSelectors, builtinAgentSelectors } from '@/store/agent/selectors';
++import { settingsSelectors, systemAgentSelectors } from '@/store/user/selectors';
++import { getUserStoreState } from '@/store/user/store';
 +
 +import { flattenEditorText, locateAnchor } from '../DocumentComments/anchor/textAnchor';
 +import { usePageEditorStore } from '../store';
@@ -1296,25 +1331,52 @@ index 00000000..0ed2a0a0
 +});
 +
 +/**
++ * Providers that only run as a full agent turn (the Claude Code server
++ * backend runs each turn in a CLI worker) and cannot answer a one-shot
++ * completion like this one.
++ */
++const AGENT_ONLY_PROVIDERS = new Set(['claude-code']);
++
++/**
 + * The model the page copilot ("Ask Lobe AI") talks to: the active agent, or
 + * the built-in page agent when the active one cannot drive a page (a group or
 + * an agent on an external runtime) — the same rule as `PageAgentProvider`.
++ *
++ * When that model is agent-only, the first completion-capable model among
++ * the page agent, the default assistant and the system translation model
++ * answers instead.
 + */
-+const resolveCopilotModel = () => {
++export const resolveCommentModel = () => {
 +  const state = getAgentStoreState();
 +  const activeAgentId = state.activeAgentId;
 +  const pageAgentId = builtinAgentSelectors.pageAgentId(state);
-+  const agentId =
++  const copilotAgentId =
 +    !activeAgentId ||
 +    isChatGroupSessionId(activeAgentId) ||
 +    agentByIdSelectors.isAgentHeterogeneousById(activeAgentId)(state)
 +      ? pageAgentId
 +      : activeAgentId;
 +
-+  return {
++  const fromAgent = (agentId?: string) => ({
 +    model: agentByIdSelectors.getAgentModelById(agentId ?? '')(state),
 +    provider: agentByIdSelectors.getAgentModelProviderById(agentId ?? '')(state),
-+  };
++  });
++  const userState = getUserStoreState();
++  const defaultAgent = settingsSelectors.defaultAgentConfig(userState);
++  const translation = systemAgentSelectors.translation(userState);
++
++  const candidates = [
++    fromAgent(copilotAgentId),
++    fromAgent(pageAgentId),
++    { model: defaultAgent.model, provider: defaultAgent.provider },
++    { model: translation.model, provider: translation.provider },
++  ];
++
++  return (
++    candidates.find(
++      ({ model, provider }) => model && provider && !AGENT_ONLY_PROVIDERS.has(provider),
++    ) ?? candidates[0]
++  );
 +};
 +
 +export const useAICommentsState = (documentId: string) => {
@@ -1397,7 +1459,7 @@ index 00000000..0ed2a0a0
 +      const thread = threadsRef.current.find((item) => item.id === id);
 +      if (!thread) return;
 +
-+      const { model, provider } = resolveCopilotModel();
++      const { model, provider } = resolveCommentModel();
 +      const messages = buildChatMessages(buildContext(thread.selectionAnchor), thread.messages);
 +      const controller = new AbortController();
 +      aborters.set(id, controller);
