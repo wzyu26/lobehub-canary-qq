@@ -7059,10 +7059,10 @@ index 0000000000..88f3078068
 +};
 diff --git a/apps/server/src/services/claudeCode/finish.ts b/apps/server/src/services/claudeCode/finish.ts
 new file mode 100644
-index 0000000000..9204ab23cf
+index 0000000000..8ebf189f07
 --- /dev/null
 +++ b/apps/server/src/services/claudeCode/finish.ts
-@@ -0,0 +1,138 @@
+@@ -0,0 +1,151 @@
 +import type { AgentState } from '@lobechat/agent-runtime';
 +import { parse } from '@lobechat/conversation-flow';
 +import superjson from 'superjson';
@@ -7080,6 +7080,7 @@ index 0000000000..9204ab23cf
 +  restoreClaudeCodeProjection,
 +} from './projectEvents';
 +
++const LIFECYCLE_RETRY_MS = 120_000;
 +const INTERRUPTED_MESSAGE =
 +  'The server Claude Code worker stopped before this turn finished. It was not retried; send the message again to continue.';
 +
@@ -7091,8 +7092,14 @@ index 0000000000..9204ab23cf
 +  if (!run || ['queued', 'running', 'cancelling'].includes(run.status)) return;
 +  if (!(await drainClaudeCodeEvents(scope))) return;
 +
++  let pendingLifecycle:
++    { finalState: AgentState; reason: 'done' | 'error' | 'interrupted' } | undefined;
 +  await model.withProjectionState(scope.operationId, async (tx, current, checkpoint) => {
 +    if (checkpoint?.settled || checkpoint?.lifecycleComplete) return checkpoint;
++    // Another settlement is running the hooks; retry only once it looks abandoned.
++    if (Date.now() - Number(checkpoint?.lifecycleStartedAt ?? 0) < LIFECYCLE_RETRY_MS) {
++      return checkpoint;
++    }
 +    const state = current.preparedRequest.state as unknown as AgentState;
 +    const states = restoreClaudeCodeProjection(checkpoint);
 +    await closeClaudeCodeInterventions(tx as unknown as LobeChatDatabase, current, states);
@@ -7133,28 +7140,34 @@ index 0000000000..9204ab23cf
 +      metadata: { ...state.metadata, assistantMessageId },
 +      status: reason,
 +    };
-+    await new CompletionLifecycle(
-+      tx as unknown as LobeChatDatabase,
-+      scope.userId,
-+      scope.workspaceId,
-+      { backgroundDB: scope.db },
-+    ).dispatchHooks(current.operationId, finalState, reason);
-+    // Commit the lifecycle receipt before retryable Redis/socket publication.
-+    // Existing hook retry semantics still apply to a crash inside dispatchHooks;
-+    // this checkpoint never promises exactly-once external webhook delivery.
++    pendingLifecycle = { finalState: finalState as unknown as AgentState, reason };
 +    return {
 +      ...checkpoint,
 +      completionState: superjson.stringify(finalState),
 +      completionStepIndex: projection?.lastStepIndex ?? state.stepCount,
-+      lifecycleComplete: true,
++      lifecycleStartedAt: Date.now(),
 +      reducer: superjson.stringify(projection),
 +    };
 +  });
++  // Outside the transaction: hooks write the topic through other connections, and waiting on
++  // them while holding this run's locks would deadlock and stall every later query.
++  if (pendingLifecycle) {
++    await new CompletionLifecycle(scope.db, scope.userId, scope.workspaceId).dispatchHooks(
++      scope.operationId,
++      pendingLifecycle.finalState,
++      pendingLifecycle.reason,
++    );
++    await model.withProjectionState(scope.operationId, async (_tx, _current, checkpoint) => ({
++      ...checkpoint,
++      lifecycleComplete: true,
++    }));
++  }
 +
 +  await model.withProjectionState(scope.operationId, async (_tx, current, checkpoint) => {
 +    if (checkpoint?.settled) return checkpoint;
++    // A concurrent settlement still owns the hooks; the sweeper finishes this one later.
 +    if (!checkpoint?.lifecycleComplete || typeof checkpoint.completionState !== 'string') {
-+      throw new Error('Claude Code lifecycle has not completed');
++      return checkpoint;
 +    }
 +    const finalState = superjson.parse<AgentState>(checkpoint.completionState);
 +    const reason =
