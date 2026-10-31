@@ -4526,7 +4526,7 @@ index d30a41c355..583cff1c12 100644
    const { discovery, initialContext, prep } = await runOperationInit(
      {
 diff --git a/apps/server/src/services/aiAgent/pipeline/execTurn.ts b/apps/server/src/services/aiAgent/pipeline/execTurn.ts
-index 7a3d24ccd4..e0fc95a024 100644
+index 7a3d24ccd4..7068d19762 100644
 --- a/apps/server/src/services/aiAgent/pipeline/execTurn.ts
 +++ b/apps/server/src/services/aiAgent/pipeline/execTurn.ts
 @@ -20,6 +20,10 @@ import type { AgentConfigWithId } from '@/server/services/agent';
@@ -4549,12 +4549,13 @@ index 7a3d24ccd4..e0fc95a024 100644
    let resumeParentMessage: Awaited<ReturnType<MessageModel['findById']>>;
  
    // `resumeApproval` implies the same "load parent message + skip user
-@@ -455,6 +461,16 @@ export const execAgentTurn = async (
+@@ -455,6 +461,17 @@ export const execAgentTurn = async (
      topicId,
    } = turn;
  
 +  const isOrdinaryClaudeCode =
 +    provider === 'claude-code' && !agentConfig.agencyConfig?.heterogeneousProvider;
++  const claudeCodeServerOnly = isOrdinaryClaudeCode && !canUseDevice;
 +  if (isOrdinaryClaudeCode) {
 +    if (shareGate) throw new Error('The server Claude Code account can only be used by its owner');
 +    claudeCodeBinding = await assertClaudeCodeAvailable(deps.db, deps.userId, deps.workspaceId);
@@ -4566,54 +4567,43 @@ index 7a3d24ccd4..e0fc95a024 100644
    // Shared context for the extracted execAgent pipeline stages
    // (`pipeline/*`). Built after the turn rows exist so every stage sees the
    // persisted anchors; `agentConfig` stays the same mutable object so stage
-@@ -483,8 +499,8 @@ export const execAgentTurn = async (
-     assistantMessageId: turn.assistantMessageId,
-     botContext,
-     botPlatformContext,
--    canUseDevice,
--    deviceAccessReason,
-+    canUseDevice: isOrdinaryClaudeCode ? false : canUseDevice,
-+    deviceAccessReason: isOrdinaryClaudeCode ? 'server-worker' : deviceAccessReason,
-     disabledPluginIds,
-     discordContext,
-     model,
-@@ -600,7 +616,7 @@ export const execAgentTurn = async (
+@@ -600,7 +617,7 @@ export const execAgentTurn = async (
      approvalOwnerAssistantId,
      approvedToolEntries,
      attachedFileIds,
 -    disableLocalSystem,
-+    disableLocalSystem: isOrdinaryClaudeCode ? true : disableLocalSystem,
++    disableLocalSystem: claudeCodeServerOnly ? true : disableLocalSystem,
      disableSelfFeedbackIntentTool: params.disableSelfFeedbackIntentTool,
      disableTools: params.disableTools,
      ephemeralUserMessage,
-@@ -610,14 +626,14 @@ export const execAgentTurn = async (
+@@ -610,14 +627,14 @@ export const execAgentTurn = async (
      functionTools,
      globalMemoryEnabled,
      hasMentionedAgents,
 -    isFixedDeviceTarget: turn.isFixedDeviceTarget,
 -    localDeviceId,
-+    isFixedDeviceTarget: isOrdinaryClaudeCode ? false : turn.isFixedDeviceTarget,
-+    localDeviceId: isOrdinaryClaudeCode ? undefined : localDeviceId,
++    isFixedDeviceTarget: claudeCodeServerOnly ? false : turn.isFixedDeviceTarget,
++    localDeviceId: claudeCodeServerOnly ? undefined : localDeviceId,
      mentionedAgents,
      parentMessageId,
      prompt,
      requestedTopicId: appContext?.topicId ?? undefined,
      requestTrigger: requestTriggerMetadata.trigger,
 -    requestedDeviceId: turn.requestedDeviceId,
-+    requestedDeviceId: isOrdinaryClaudeCode ? undefined : turn.requestedDeviceId,
++    requestedDeviceId: claudeCodeServerOnly ? undefined : turn.requestedDeviceId,
      resumeApproval,
      resumeApprovalPlugin,
      resumeApprovals,
-@@ -627,7 +643,7 @@ export const execAgentTurn = async (
+@@ -627,7 +644,7 @@ export const execAgentTurn = async (
      runAttachments,
      selectedSkillIds,
      selectedToolIds,
 -    topicBoundDeviceId: turn.topicBoundDeviceId,
-+    topicBoundDeviceId: isOrdinaryClaudeCode ? undefined : turn.topicBoundDeviceId,
++    topicBoundDeviceId: claudeCodeServerOnly ? undefined : turn.topicBoundDeviceId,
      viewedGoal: appContext?.viewedGoal,
    });
  
-@@ -716,7 +732,7 @@ export const execAgentTurn = async (
+@@ -716,7 +733,7 @@ export const execAgentTurn = async (
  
    // 19. Create the operation via AgentRuntimeService, persist the reconnect
    // marker, and mint the gateway token (see `pipeline/startOperation`).
@@ -4622,7 +4612,7 @@ index 7a3d24ccd4..e0fc95a024 100644
      startOperation(
        {
          agentRuntimeService: deps.agentRuntimeService,
-@@ -734,7 +750,7 @@ export const execAgentTurn = async (
+@@ -734,7 +751,7 @@ export const execAgentTurn = async (
          approvalClaim,
          approvalSourceOperationId,
          approvalSourceToolMessageIds,
@@ -4631,7 +4621,7 @@ index 7a3d24ccd4..e0fc95a024 100644
          onOperationCreated: params.onOperationCreated,
          botContext,
          botPlatformContext,
-@@ -771,4 +787,33 @@ export const execAgentTurn = async (
+@@ -771,4 +788,33 @@ export const execAgentTurn = async (
        },
      ),
    );
@@ -4767,7 +4757,7 @@ index 0000000000..4571eaf378
 +  });
 +});
 diff --git a/apps/server/src/services/aiAgent/pipeline/turnSetup.ts b/apps/server/src/services/aiAgent/pipeline/turnSetup.ts
-index bef358409f..bd2f6653e1 100644
+index bef358409f..0f80da5aef 100644
 --- a/apps/server/src/services/aiAgent/pipeline/turnSetup.ts
 +++ b/apps/server/src/services/aiAgent/pipeline/turnSetup.ts
 @@ -126,7 +126,8 @@ export const resolveNewTopicSnapshot = async (
@@ -4865,15 +4855,17 @@ index bef358409f..bd2f6653e1 100644
          throw new TRPCError({
            code: 'FORBIDDEN',
            message: ChatErrorType.ShareHeterogeneousAgentUnsupported,
-@@ -826,6 +833,7 @@ export const setupTurn = async (
+@@ -826,6 +833,9 @@ export const setupTurn = async (
    // chat) and stops the device list from leaking into the LLM context.
    const { canUseDevice, reason: deviceAccessReason } = resolveDeviceAccessPolicy({
      botContext,
-+    runtimeBackend: isServerWorker() ? 'claude-code' : 'api',
++    // A chosen device is the owner's explicit opt-in; otherwise the worker stays server-only.
++    runtimeBackend:
++      isServerWorker() && !requestedDeviceId && !topicBoundDeviceId ? 'claude-code' : 'api',
      shareVisitor: !!shareGate,
    });
    log(
-@@ -839,7 +847,8 @@ export const setupTurn = async (
+@@ -839,7 +849,8 @@ export const setupTurn = async (
    // the UI), fall back to the legacy `model` field for backwards compatibility
    // (shared with the inbox write guard via `isHeterogeneousAgentModelId`).
    const heteroProviderType = agentConfig.agencyConfig?.heterogeneousProvider?.type;
@@ -6840,6 +6832,14 @@ index 0000000000..5681cb6ecd
 +  }
 +  return run;
 +};
+diff --git a/apps/server/src/services/claudeCode/deviceTools.ts b/apps/server/src/services/claudeCode/deviceTools.ts
+new file mode 100644
+index 0000000000..c379e8c83c
+--- /dev/null
++++ b/apps/server/src/services/claudeCode/deviceTools.ts
+@@ -0,0 +1,2 @@
++/** Tools that act on the owner's computer rather than inside the isolated worker. */
++export const CLAUDE_CODE_DEVICE_TOOLS = ['lobe-local-system', 'lobe-remote-device'];
 diff --git a/apps/server/src/services/claudeCode/enqueue.ts b/apps/server/src/services/claudeCode/enqueue.ts
 new file mode 100644
 index 0000000000..88f3078068
@@ -7736,10 +7736,10 @@ index 0000000000..33e814a6f5
 +};
 diff --git a/apps/server/src/services/claudeCode/prepareClaim.ts b/apps/server/src/services/claudeCode/prepareClaim.ts
 new file mode 100644
-index 0000000000..99e2711e8e
+index 0000000000..835595530c
 --- /dev/null
 +++ b/apps/server/src/services/claudeCode/prepareClaim.ts
-@@ -0,0 +1,283 @@
+@@ -0,0 +1,289 @@
 +import type { AgentState } from '@lobechat/agent-runtime';
 +import type { AgentRunInitRequest } from '@lobechat/types';
 +import { isDeviceOnlyMcpEndpoint } from '@lobechat/utils/mcpEndpoint';
@@ -7762,6 +7762,7 @@ index 0000000000..99e2711e8e
 +import { hasServerRuntime } from '@/server/services/toolExecution/serverRuntimes';
 +
 +import { buildClaudeCodeContext } from './buildContext';
++import { CLAUDE_CODE_DEVICE_TOOLS } from './deviceTools';
 +import { assertClaudeCodeAvailable, type ClaudeCodeTurnOverrides } from './enqueue';
 +import { loadClaudeCodeClaimHistory } from './loadClaimHistory';
 +import { prepareClaudeCodeContext } from './prepareContext';
@@ -7917,20 +7918,24 @@ index 0000000000..99e2711e8e
 +  signal?.throwIfAborted();
 +  // A removed attachment must never be replaced by the cached content from enqueue time.
 +  const missing = attachmentIds.filter((id) => !attachments.orderedFileIds.includes(id));
++  // The device decision was made once, when the owner sent the turn.
++  const serverOnly = !state.principal?.policy?.deviceAccess?.canUseDevice;
 +  const request: AgentRunInitRequest = {
 +    ...initRequest,
 +    attachedFileIds: attachments.orderedFileIds,
 +    detachedFileContentIds: undefined,
-+    disableLocalSystem: true,
 +    globalMemoryEnabled: settings.globalMemoryEnabled,
-+    isFixedDeviceTarget: false,
-+    localDeviceId: undefined,
 +    prompt: source ? (source.content ?? '') : initRequest.prompt,
-+    requestedDeviceId: undefined,
 +    selectedSkillIds: !initRequest.resumeFromHistory
 +      ? sourceWithFiles?.metadata?.selectedSkillIds
 +      : initRequest.selectedSkillIds,
-+    topicBoundDeviceId: undefined,
++    ...(serverOnly && {
++      disableLocalSystem: true,
++      isFixedDeviceTarget: false,
++      localDeviceId: undefined,
++      requestedDeviceId: undefined,
++      topicBoundDeviceId: undefined,
++    }),
 +    runAttachments: {
 +      ...attachments,
 +      fileIds: attachments.orderedFileIds,
@@ -7952,15 +7957,17 @@ index 0000000000..99e2711e8e
 +  state.enableExpertise = settings.enableExpertise;
 +  state.expertise = undefined;
 +  state.activatedStepSkills = undefined;
-+  state.binding = { ...state.binding, device: undefined };
-+  state.plan = { ...state.plan, workingDirectory: undefined };
-+  state.principal = {
-+    ...state.principal,
-+    policy: {
-+      ...state.principal?.policy,
-+      deviceAccess: { canUseDevice: false, reason: 'server-worker' },
-+    },
-+  };
++  if (serverOnly) {
++    state.binding = { ...state.binding, device: undefined };
++    state.plan = { ...state.plan, workingDirectory: undefined };
++    state.principal = {
++      ...state.principal,
++      policy: {
++        ...state.principal?.policy,
++        deviceAccess: { canUseDevice: false, reason: 'server-worker' },
++      },
++    };
++  }
 +  // Reuse the same discovery, knowledge, history, skill and memory preparation as API runs.
 +  // Dynamic import avoids the AiAgentService -> enqueue import cycle.
 +  const { AiAgentService } = await import('@/server/services/aiAgent');
@@ -8002,9 +8009,8 @@ index 0000000000..99e2711e8e
 +      }
 +      return (
 +        hasServerRuntime(identifier) &&
-+        !['lobe-local-system', 'lobe-browser', 'lobe-auv', 'lobe-remote-device'].includes(
-+          identifier,
-+        )
++        !['lobe-browser', 'lobe-auv'].includes(identifier) &&
++        !(serverOnly && CLAUDE_CODE_DEVICE_TOOLS.includes(identifier))
 +      );
 +    },
 +  });
@@ -8814,10 +8820,10 @@ index 0000000000..f5cd6531de
 +};
 diff --git a/apps/server/src/services/claudeCode/toolBridge.test.ts b/apps/server/src/services/claudeCode/toolBridge.test.ts
 new file mode 100644
-index 0000000000..2eaded4d03
+index 0000000000..cbebf73c67
 --- /dev/null
 +++ b/apps/server/src/services/claudeCode/toolBridge.test.ts
-@@ -0,0 +1,265 @@
+@@ -0,0 +1,278 @@
 +// @vitest-environment node
 +import { beforeEach, describe, expect, it, vi } from 'vitest';
 +
@@ -9025,6 +9031,19 @@ index 0000000000..2eaded4d03
 +    expect(mocks.execute).not.toHaveBeenCalled();
 +  });
 +
++  it('asks before acting on the owner computer even when the policy would auto-approve', async () => {
++    const local = run();
++    local.preparedRequest.request.tools[0].identifier = 'lobe-local-system';
++    mocks.getRun.mockImplementation(async () => local);
++    mocks.wait.mockResolvedValue({ cancelled: true });
++    expect(await executeClaudeCodeTool(params)).toMatchObject({
++      result: { isError: true },
++      status: 'completed',
++    });
++    expect(mocks.wait).toHaveBeenCalledTimes(1);
++    expect(mocks.execute).not.toHaveBeenCalled();
++  });
++
 +  it('fails closed on cancelled permission or display labels instead of the stable consent ID', async () => {
 +    mocks.checkPolicy.mockResolvedValue([[{}], []]);
 +    mocks.wait.mockImplementation(async ({ request }) => {
@@ -9085,10 +9104,10 @@ index 0000000000..2eaded4d03
 +});
 diff --git a/apps/server/src/services/claudeCode/toolBridge.ts b/apps/server/src/services/claudeCode/toolBridge.ts
 new file mode 100644
-index 0000000000..398e2289e3
+index 0000000000..1cf87c0247
 --- /dev/null
 +++ b/apps/server/src/services/claudeCode/toolBridge.ts
-@@ -0,0 +1,280 @@
+@@ -0,0 +1,282 @@
 +import type { AgentState, GeneralChatAgent, ToolRunResult } from '@lobechat/agent-runtime';
 +import { callTool } from '@lobechat/agent-runtime';
 +import type {
@@ -9105,6 +9124,7 @@ index 0000000000..398e2289e3
 +import { createStreamEventManager } from '@/server/modules/AgentRuntime/factory';
 +import { AgentRuntimeService } from '@/server/services/agentRuntime';
 +
++import { CLAUDE_CODE_DEVICE_TOOLS } from './deviceTools';
 +import type { ClaudeCodeBridgeScope } from './interventionBridge';
 +import { waitClaudeCodeIntervention } from './interventionBridge';
 +import { ensureClaudeCodeToolMessage, findClaudeCodeToolMessage } from './messageScope';
@@ -9254,7 +9274,8 @@ index 0000000000..398e2289e3
 +    if (typeof policy.checkInterventionNeeded !== 'function')
 +      throw new Error('Tool approval policy is unavailable');
 +    const [needsApproval] = await policy.checkInterventionNeeded([tool], state);
-+    if (needsApproval.length > 0) {
++    // The composer's auto-approve mode does not extend to the owner's computer.
++    if (needsApproval.length > 0 || CLAUDE_CODE_DEVICE_TOOLS.includes(tool.identifier)) {
 +      const question = `Allow ${tool.identifier}/${tool.apiName}?\n${JSON.stringify(args, null, 2).slice(0, 3000)}`;
 +      const answer = await waitClaudeCodeIntervention({
 +        db,
