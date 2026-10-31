@@ -2,6 +2,12 @@ name: Follow upstream with the Claude Code build
 
 on:
   workflow_dispatch:
+    inputs:
+      build_on:
+        description: Where to build the images
+        type: choice
+        options: [local, github]
+        default: local
   schedule:
     - cron: '23 */6 * * *'
   push:
@@ -14,10 +20,6 @@ on:
       - 'scripts/prepare-ai-comments.py'
       - 'scripts/smoke-claude-code-app.mjs'
       - 'patches/**'
-
-concurrency:
-  group: claude-code-follow
-  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -57,6 +59,11 @@ jobs:
     if: needs.decide.outputs.needed == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    # A newer push replaces a build in progress. `needed` is in the group so a
+    # scheduled run that has nothing to build can never cancel one that does.
+    concurrency:
+      group: claude-code-validate-${{ needs.decide.outputs.needed }}
+      cancel-in-progress: true
     services:
       redis:
         image: redis:7-alpine
@@ -125,9 +132,15 @@ jobs:
         run: pnpm exec vitest run --config vitest.config.mts src/adapter.test.ts src/passive-reply.test.ts
 
   image:
-    needs: [decide, validate]
-    runs-on: ubuntu-24.04
+    needs: decide
+    if: needs.decide.outputs.needed == 'true'
+    # Pushes build on the local runners in runner/. Scheduled runs stay on GitHub
+    # so upstream is still followed while that machine is off.
+    runs-on: ${{ (github.event_name == 'schedule' || inputs.build_on == 'github') && 'ubuntu-24.04' || fromJSON('["self-hosted", "lobehub-build"]') }}
     timeout-minutes: 150
+    concurrency:
+      group: claude-code-image-${{ matrix.component }}-${{ needs.decide.outputs.needed }}
+      cancel-in-progress: true
     permissions:
       contents: read
       packages: write
@@ -155,6 +168,12 @@ jobs:
       - run: python3 config/scripts/prepare-claude-code.py source
       - run: python3 config/scripts/prepare-ai-comments.py source
       - uses: docker/setup-buildx-action@v3
+        if: runner.environment == 'github-hosted'
+        with:
+          cleanup: false
+      - name: Use the shared local builder
+        if: runner.environment == 'self-hosted'
+        run: docker buildx create --name lobehub --driver remote tcp://buildkitd:1234 --use || docker buildx use lobehub
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -176,8 +195,6 @@ jobs:
             org.opencontainers.image.revision=${{ github.sha }}
             io.lobehub.upstream=${{ needs.decide.outputs.sha }}
             io.lobehub.qq-patch=18187-8d48bcdbd746aa036f0fde9f1ba934cc8ac26a14
-          cache-from: type=gha,scope=claude-code-${{ matrix.component }}
-          cache-to: type=gha,scope=claude-code-${{ matrix.component }},mode=max,ignore-error=true
       - name: Verify the published runtime
         env:
           COMPONENT: ${{ matrix.component }}
@@ -218,13 +235,22 @@ jobs:
               docker run --rm "$IMAGE@$DIGEST" --help
               ;;
           esac
+      - name: Free the verified image on the local runner
+        if: always() && runner.environment == 'self-hosted' && steps.build.outputs.digest != ''
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: docker rmi "$IMAGE@$DIGEST" || true
 
   promote:
-    needs: [decide, image]
+    needs: [decide, validate, image]
     # A run on another branch builds and checks run-specific images only; the
     # tags production follows move from main alone.
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
+    # Never cancelled: the tags move together, and a newer run waits its turn here.
+    concurrency:
+      group: claude-code-promote
+      cancel-in-progress: false
     permissions:
       contents: write
       packages: write

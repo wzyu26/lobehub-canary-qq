@@ -20,6 +20,12 @@ The scheduled build is now `claude-code-candidate.yml`: it applies the QQ fixes 
 
 The migration takes the millisecond after upstream's newest timestamp, never the build time, because drizzle skips any migration older than the newest one the database has recorded.
 
+## Local build runners
+
+Pushes to `main` build the three images on the runners in `runner/`, which is several times faster than GitHub's hosted machines. Tests and the tag move stay on GitHub, and scheduled runs build entirely on GitHub, so upstream is still followed while the machine is off. A push made while it is off waits until it is back on, or until a newer push replaces it; to build such a push now, run the workflow by hand with `build_on: github`.
+
+The runners are containers with `restart: unless-stopped`, so they come back with Docker Desktop. To register them, copy a token from the repository's new self-hosted runner page and run `runner/register.ps1`. The repository is public and a runner can control the host's Docker, so keep "Require approval for all external contributors" on under Settings > Actions.
+
 ## Deployment
 
 Set only the application's Compose image to `ghcr.io/wzyu26/lobehub-canary-qq:canary`; keep the existing environment, networking and dependencies. The GHCR package must be public for anonymous pulls, or the server must have its own read-only registry login.

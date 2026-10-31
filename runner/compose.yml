@@ -1,0 +1,52 @@
+name: lobehub-runner
+
+x-runner: &runner
+  image: lobehub-runner:local
+  restart: unless-stopped
+  depends_on: [buildkitd]
+
+services:
+  # One BuildKit daemon for all runners, so jobs share a cache that survives between builds.
+  buildkitd:
+    image: moby/buildkit:v0.34.1
+    restart: unless-stopped
+    privileged: true
+    command: ['--addr', 'tcp://0.0.0.0:1234', '--oci-worker-gc', '--oci-worker-gc-keepstorage=40000']
+    volumes:
+      - buildkit:/var/lib/buildkit
+
+  # Three runners, because the app, worker and admin images build at the same time.
+  runner-1:
+    <<: *runner
+    build: .
+    environment:
+      REPO_URL: https://github.com/wzyu26/lobehub-canary-qq
+      RUNNER_NAME: lobehub-build-1
+      RUNNER_TOKEN: ${RUNNER_TOKEN:-}
+    volumes:
+      - runner-1:/runner
+      - /var/run/docker.sock:/var/run/docker.sock
+  runner-2:
+    <<: *runner
+    environment:
+      REPO_URL: https://github.com/wzyu26/lobehub-canary-qq
+      RUNNER_NAME: lobehub-build-2
+      RUNNER_TOKEN: ${RUNNER_TOKEN:-}
+    volumes:
+      - runner-2:/runner
+      - /var/run/docker.sock:/var/run/docker.sock
+  runner-3:
+    <<: *runner
+    environment:
+      REPO_URL: https://github.com/wzyu26/lobehub-canary-qq
+      RUNNER_NAME: lobehub-build-3
+      RUNNER_TOKEN: ${RUNNER_TOKEN:-}
+    volumes:
+      - runner-3:/runner
+      - /var/run/docker.sock:/var/run/docker.sock
+
+volumes:
+  buildkit:
+  runner-1:
+  runner-2:
+  runner-3:
