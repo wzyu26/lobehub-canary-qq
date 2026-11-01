@@ -1,6 +1,6 @@
 diff --git a/apps/claude-code-worker/.env.example b/apps/claude-code-worker/.env.example
 new file mode 100644
-index 0000000000..a9e82597fd
+index 00000000..a9e82597
 --- /dev/null
 +++ b/apps/claude-code-worker/.env.example
 @@ -0,0 +1,5 @@
@@ -11,7 +11,7 @@ index 0000000000..a9e82597fd
 +LOBEHUB_WORKER_TOKEN_HOST_FILE=/absolute/per-user/secrets/worker-token
 diff --git a/apps/claude-code-worker/DEPLOYMENT.md b/apps/claude-code-worker/DEPLOYMENT.md
 new file mode 100644
-index 0000000000..f77d469746
+index 00000000..f77d4697
 --- /dev/null
 +++ b/apps/claude-code-worker/DEPLOYMENT.md
 @@ -0,0 +1,121 @@
@@ -138,7 +138,7 @@ index 0000000000..f77d469746
 +随后恢复事先记录的旧主应用镜像。保留聊天数据、新增表、每位用户的四个卷和服务凭据文件；不要运行 `down --volumes`，不要删除 state 来 “重试” 模型。恢复新版本时先接收旧事件并将未收尾任务标为中断，再开放新任务。已经提交的写工具只取原回执，不重新执行。
 diff --git a/apps/claude-code-worker/Dockerfile b/apps/claude-code-worker/Dockerfile
 new file mode 100644
-index 0000000000..ee2634e017
+index 00000000..ee2634e0
 --- /dev/null
 +++ b/apps/claude-code-worker/Dockerfile
 @@ -0,0 +1,56 @@
@@ -200,7 +200,7 @@ index 0000000000..ee2634e017
 +CMD ["bun", "--no-install", "/app/worker.js"]
 diff --git a/apps/claude-code-worker/README.md b/apps/claude-code-worker/README.md
 new file mode 100644
-index 0000000000..7c0a43986c
+index 00000000..7c0a4398
 --- /dev/null
 +++ b/apps/claude-code-worker/README.md
 @@ -0,0 +1,68 @@
@@ -274,7 +274,7 @@ index 0000000000..7c0a43986c
 +limits require the staged deployment acceptance suite before enabling users.
 diff --git a/apps/claude-code-worker/__tests__/startup.integration.test.ts b/apps/claude-code-worker/__tests__/startup.integration.test.ts
 new file mode 100644
-index 0000000000..5bddc48cb0
+index 00000000..5bddc48c
 --- /dev/null
 +++ b/apps/claude-code-worker/__tests__/startup.integration.test.ts
 @@ -0,0 +1,89 @@
@@ -369,7 +369,7 @@ index 0000000000..5bddc48cb0
 +});
 diff --git a/apps/claude-code-worker/admin/database.test.ts b/apps/claude-code-worker/admin/database.test.ts
 new file mode 100644
-index 0000000000..54f0dc06a5
+index 00000000..54f0dc06
 --- /dev/null
 +++ b/apps/claude-code-worker/admin/database.test.ts
 @@ -0,0 +1,63 @@
@@ -438,7 +438,7 @@ index 0000000000..54f0dc06a5
 +});
 diff --git a/apps/claude-code-worker/admin/database.ts b/apps/claude-code-worker/admin/database.ts
 new file mode 100644
-index 0000000000..6b187e82fd
+index 00000000..6b187e82
 --- /dev/null
 +++ b/apps/claude-code-worker/admin/database.ts
 @@ -0,0 +1,32 @@
@@ -476,7 +476,7 @@ index 0000000000..6b187e82fd
 +};
 diff --git a/apps/claude-code-worker/admin/index.ts b/apps/claude-code-worker/admin/index.ts
 new file mode 100644
-index 0000000000..1e09c39245
+index 00000000..1e09c392
 --- /dev/null
 +++ b/apps/claude-code-worker/admin/index.ts
 @@ -0,0 +1,71 @@
@@ -553,7 +553,7 @@ index 0000000000..1e09c39245
 +}
 diff --git a/apps/claude-code-worker/admin/provision.test.ts b/apps/claude-code-worker/admin/provision.test.ts
 new file mode 100644
-index 0000000000..8bec26ff28
+index 00000000..8bec26ff
 --- /dev/null
 +++ b/apps/claude-code-worker/admin/provision.test.ts
 @@ -0,0 +1,64 @@
@@ -623,7 +623,7 @@ index 0000000000..8bec26ff28
 +});
 diff --git a/apps/claude-code-worker/admin/provision.ts b/apps/claude-code-worker/admin/provision.ts
 new file mode 100644
-index 0000000000..e80cd9352a
+index 00000000..e80cd935
 --- /dev/null
 +++ b/apps/claude-code-worker/admin/provision.ts
 @@ -0,0 +1,70 @@
@@ -699,7 +699,7 @@ index 0000000000..e80cd9352a
 +};
 diff --git a/apps/claude-code-worker/compose.yaml b/apps/claude-code-worker/compose.yaml
 new file mode 100644
-index 0000000000..7b08382e95
+index 00000000..7b08382e
 --- /dev/null
 +++ b/apps/claude-code-worker/compose.yaml
 @@ -0,0 +1,45 @@
@@ -750,7 +750,7 @@ index 0000000000..7b08382e95
 +  state: {}
 diff --git a/apps/claude-code-worker/package.json b/apps/claude-code-worker/package.json
 new file mode 100644
-index 0000000000..0a487da315
+index 00000000..0a487da3
 --- /dev/null
 +++ b/apps/claude-code-worker/package.json
 @@ -0,0 +1,21 @@
@@ -777,7 +777,7 @@ index 0000000000..0a487da315
 +}
 diff --git a/apps/claude-code-worker/scripts/buildWorker.mjs b/apps/claude-code-worker/scripts/buildWorker.mjs
 new file mode 100644
-index 0000000000..142afa4c07
+index 00000000..142afa4c
 --- /dev/null
 +++ b/apps/claude-code-worker/scripts/buildWorker.mjs
 @@ -0,0 +1,35 @@
@@ -818,7 +818,7 @@ index 0000000000..142afa4c07
 +console.info('Worker bundle and runtime dependency startup verified');
 diff --git a/apps/claude-code-worker/scripts/smokeWorkerStartup.mjs b/apps/claude-code-worker/scripts/smokeWorkerStartup.mjs
 new file mode 100644
-index 0000000000..7ebefc246d
+index 00000000..7ebefc24
 --- /dev/null
 +++ b/apps/claude-code-worker/scripts/smokeWorkerStartup.mjs
 @@ -0,0 +1,39 @@
@@ -863,7 +863,7 @@ index 0000000000..7ebefc246d
 +}
 diff --git a/apps/claude-code-worker/src/api.test.ts b/apps/claude-code-worker/src/api.test.ts
 new file mode 100644
-index 0000000000..18f5367756
+index 00000000..18f53677
 --- /dev/null
 +++ b/apps/claude-code-worker/src/api.test.ts
 @@ -0,0 +1,63 @@
@@ -932,7 +932,7 @@ index 0000000000..18f5367756
 +});
 diff --git a/apps/claude-code-worker/src/api.ts b/apps/claude-code-worker/src/api.ts
 new file mode 100644
-index 0000000000..ca413fa2c8
+index 00000000..ca413fa2
 --- /dev/null
 +++ b/apps/claude-code-worker/src/api.ts
 @@ -0,0 +1,40 @@
@@ -978,7 +978,7 @@ index 0000000000..ca413fa2c8
 +  `/runs/${encodeURIComponent(operationId)}/${action}`;
 diff --git a/apps/claude-code-worker/src/claudeStatus.discovery.test.ts b/apps/claude-code-worker/src/claudeStatus.discovery.test.ts
 new file mode 100644
-index 0000000000..575f8413a7
+index 00000000..575f8413
 --- /dev/null
 +++ b/apps/claude-code-worker/src/claudeStatus.discovery.test.ts
 @@ -0,0 +1,75 @@
@@ -1059,7 +1059,7 @@ index 0000000000..575f8413a7
 +});
 diff --git a/apps/claude-code-worker/src/claudeStatus.test.ts b/apps/claude-code-worker/src/claudeStatus.test.ts
 new file mode 100644
-index 0000000000..080a8aeffe
+index 00000000..080a8aef
 --- /dev/null
 +++ b/apps/claude-code-worker/src/claudeStatus.test.ts
 @@ -0,0 +1,24 @@
@@ -1089,7 +1089,7 @@ index 0000000000..080a8aeffe
 +});
 diff --git a/apps/claude-code-worker/src/claudeStatus.ts b/apps/claude-code-worker/src/claudeStatus.ts
 new file mode 100644
-index 0000000000..7a006c575e
+index 00000000..7a006c57
 --- /dev/null
 +++ b/apps/claude-code-worker/src/claudeStatus.ts
 @@ -0,0 +1,138 @@
@@ -1233,7 +1233,7 @@ index 0000000000..7a006c575e
 +};
 diff --git a/apps/claude-code-worker/src/config.test.ts b/apps/claude-code-worker/src/config.test.ts
 new file mode 100644
-index 0000000000..f345c699e3
+index 00000000..f345c699
 --- /dev/null
 +++ b/apps/claude-code-worker/src/config.test.ts
 @@ -0,0 +1,46 @@
@@ -1285,7 +1285,7 @@ index 0000000000..f345c699e3
 +});
 diff --git a/apps/claude-code-worker/src/config.ts b/apps/claude-code-worker/src/config.ts
 new file mode 100644
-index 0000000000..2407c6b896
+index 00000000..2407c6b8
 --- /dev/null
 +++ b/apps/claude-code-worker/src/config.ts
 @@ -0,0 +1,66 @@
@@ -1357,7 +1357,7 @@ index 0000000000..2407c6b896
 +});
 diff --git a/apps/claude-code-worker/src/index.ts b/apps/claude-code-worker/src/index.ts
 new file mode 100644
-index 0000000000..4ab6dd4608
+index 00000000..4ab6dd46
 --- /dev/null
 +++ b/apps/claude-code-worker/src/index.ts
 @@ -0,0 +1,22 @@
@@ -1385,7 +1385,7 @@ index 0000000000..4ab6dd4608
 +}
 diff --git a/apps/claude-code-worker/src/lease.test.ts b/apps/claude-code-worker/src/lease.test.ts
 new file mode 100644
-index 0000000000..98b45ad165
+index 00000000..98b45ad1
 --- /dev/null
 +++ b/apps/claude-code-worker/src/lease.test.ts
 @@ -0,0 +1,77 @@
@@ -1468,7 +1468,7 @@ index 0000000000..98b45ad165
 +});
 diff --git a/apps/claude-code-worker/src/lease.ts b/apps/claude-code-worker/src/lease.ts
 new file mode 100644
-index 0000000000..7c2fc55bf1
+index 00000000..7c2fc55b
 --- /dev/null
 +++ b/apps/claude-code-worker/src/lease.ts
 @@ -0,0 +1,83 @@
@@ -1557,7 +1557,7 @@ index 0000000000..7c2fc55bf1
 +}
 diff --git a/apps/claude-code-worker/src/outbox.test.ts b/apps/claude-code-worker/src/outbox.test.ts
 new file mode 100644
-index 0000000000..4b68695b8f
+index 00000000..4b68695b
 --- /dev/null
 +++ b/apps/claude-code-worker/src/outbox.test.ts
 @@ -0,0 +1,141 @@
@@ -1704,7 +1704,7 @@ index 0000000000..4b68695b8f
 +});
 diff --git a/apps/claude-code-worker/src/outbox.ts b/apps/claude-code-worker/src/outbox.ts
 new file mode 100644
-index 0000000000..a35c8b763b
+index 00000000..a35c8b76
 --- /dev/null
 +++ b/apps/claude-code-worker/src/outbox.ts
 @@ -0,0 +1,244 @@
@@ -1954,7 +1954,7 @@ index 0000000000..a35c8b763b
 +};
 diff --git a/apps/claude-code-worker/src/runner.test.ts b/apps/claude-code-worker/src/runner.test.ts
 new file mode 100644
-index 0000000000..c1422783b4
+index 00000000..c1422783
 --- /dev/null
 +++ b/apps/claude-code-worker/src/runner.test.ts
 @@ -0,0 +1,294 @@
@@ -2254,7 +2254,7 @@ index 0000000000..c1422783b4
 +});
 diff --git a/apps/claude-code-worker/src/runner.ts b/apps/claude-code-worker/src/runner.ts
 new file mode 100644
-index 0000000000..b804f4ba95
+index 00000000..b804f4ba
 --- /dev/null
 +++ b/apps/claude-code-worker/src/runner.ts
 @@ -0,0 +1,228 @@
@@ -2488,7 +2488,7 @@ index 0000000000..b804f4ba95
 +};
 diff --git a/apps/claude-code-worker/src/service.test.ts b/apps/claude-code-worker/src/service.test.ts
 new file mode 100644
-index 0000000000..8cc33d01b6
+index 00000000..8cc33d01
 --- /dev/null
 +++ b/apps/claude-code-worker/src/service.test.ts
 @@ -0,0 +1,76 @@
@@ -2570,7 +2570,7 @@ index 0000000000..8cc33d01b6
 +});
 diff --git a/apps/claude-code-worker/src/service.ts b/apps/claude-code-worker/src/service.ts
 new file mode 100644
-index 0000000000..fcfad3e44d
+index 00000000..fcfad3e4
 --- /dev/null
 +++ b/apps/claude-code-worker/src/service.ts
 @@ -0,0 +1,83 @@
@@ -2659,7 +2659,7 @@ index 0000000000..fcfad3e44d
 +};
 diff --git a/apps/claude-code-worker/src/testUtils.ts b/apps/claude-code-worker/src/testUtils.ts
 new file mode 100644
-index 0000000000..4af49d91b6
+index 00000000..4af49d91
 --- /dev/null
 +++ b/apps/claude-code-worker/src/testUtils.ts
 @@ -0,0 +1,48 @@
@@ -2713,7 +2713,7 @@ index 0000000000..4af49d91b6
 +});
 diff --git a/apps/claude-code-worker/src/toolBridge.test.ts b/apps/claude-code-worker/src/toolBridge.test.ts
 new file mode 100644
-index 0000000000..049f606e90
+index 00000000..049f606e
 --- /dev/null
 +++ b/apps/claude-code-worker/src/toolBridge.test.ts
 @@ -0,0 +1,92 @@
@@ -2811,7 +2811,7 @@ index 0000000000..049f606e90
 +});
 diff --git a/apps/claude-code-worker/src/toolBridge.ts b/apps/claude-code-worker/src/toolBridge.ts
 new file mode 100644
-index 0000000000..5f75d3b3b2
+index 00000000..5f75d3b3
 --- /dev/null
 +++ b/apps/claude-code-worker/src/toolBridge.ts
 @@ -0,0 +1,80 @@
@@ -2897,7 +2897,7 @@ index 0000000000..5f75d3b3b2
 +};
 diff --git a/apps/claude-code-worker/tsconfig.json b/apps/claude-code-worker/tsconfig.json
 new file mode 100644
-index 0000000000..498ae2d26d
+index 00000000..498ae2d2
 --- /dev/null
 +++ b/apps/claude-code-worker/tsconfig.json
 @@ -0,0 +1,6 @@
@@ -2909,7 +2909,7 @@ index 0000000000..498ae2d26d
 +}
 diff --git a/apps/claude-code-worker/vitest.config.ts b/apps/claude-code-worker/vitest.config.ts
 new file mode 100644
-index 0000000000..35fe706c46
+index 00000000..35fe706c
 --- /dev/null
 +++ b/apps/claude-code-worker/vitest.config.ts
 @@ -0,0 +1,8 @@
@@ -2923,7 +2923,7 @@ index 0000000000..35fe706c46
 +});
 diff --git a/apps/server/src/globalConfig/__tests__/claudeCodeCatalog.integration.test.ts b/apps/server/src/globalConfig/__tests__/claudeCodeCatalog.integration.test.ts
 new file mode 100644
-index 0000000000..6de6cf3330
+index 00000000..6de6cf33
 --- /dev/null
 +++ b/apps/server/src/globalConfig/__tests__/claudeCodeCatalog.integration.test.ts
 @@ -0,0 +1,36 @@
@@ -2964,7 +2964,7 @@ index 0000000000..6de6cf3330
 +  });
 +});
 diff --git a/apps/server/src/modules/AgentRuntime/GatewayStreamNotifier.ts b/apps/server/src/modules/AgentRuntime/GatewayStreamNotifier.ts
-index 1b9d2f42a8..06912f4035 100644
+index 1b9d2f42..06912f40 100644
 --- a/apps/server/src/modules/AgentRuntime/GatewayStreamNotifier.ts
 +++ b/apps/server/src/modules/AgentRuntime/GatewayStreamNotifier.ts
 @@ -222,14 +222,20 @@ export class GatewayStreamNotifier implements IStreamEventManager {
@@ -2991,7 +2991,7 @@ index 1b9d2f42a8..06912f4035 100644
      if (barrier && !this.options.deferPushes) await push;
      return result;
 diff --git a/apps/server/src/modules/AgentRuntime/InMemoryStreamEventManager.ts b/apps/server/src/modules/AgentRuntime/InMemoryStreamEventManager.ts
-index 8ca3dfbc63..b9dbb5d84f 100644
+index 8ca3dfbc..b9dbb5d8 100644
 --- a/apps/server/src/modules/AgentRuntime/InMemoryStreamEventManager.ts
 +++ b/apps/server/src/modules/AgentRuntime/InMemoryStreamEventManager.ts
 @@ -55,6 +55,12 @@ export class InMemoryStreamEventManager implements IStreamEventManager {
@@ -3008,7 +3008,7 @@ index 8ca3dfbc63..b9dbb5d84f 100644
  
      const eventData: StreamEvent = {
 diff --git a/apps/server/src/modules/AgentRuntime/StreamEventManager.ts b/apps/server/src/modules/AgentRuntime/StreamEventManager.ts
-index ee4afe9d54..e9b9ea4a76 100644
+index ee4afe9d..e9b9ea4a 100644
 --- a/apps/server/src/modules/AgentRuntime/StreamEventManager.ts
 +++ b/apps/server/src/modules/AgentRuntime/StreamEventManager.ts
 @@ -4,6 +4,7 @@ import { isRecord } from '@lobechat/utils/object';
@@ -3061,7 +3061,7 @@ index ee4afe9d54..e9b9ea4a76 100644
        // Set expiration time
 diff --git a/apps/server/src/modules/AgentRuntime/__tests__/publishStreamEventOnce.redis.integration.test.ts b/apps/server/src/modules/AgentRuntime/__tests__/publishStreamEventOnce.redis.integration.test.ts
 new file mode 100644
-index 0000000000..f80f375fcb
+index 00000000..f80f375f
 --- /dev/null
 +++ b/apps/server/src/modules/AgentRuntime/__tests__/publishStreamEventOnce.redis.integration.test.ts
 @@ -0,0 +1,66 @@
@@ -3132,7 +3132,7 @@ index 0000000000..f80f375fcb
 +  });
 +});
 diff --git a/apps/server/src/modules/AgentRuntime/adapters/ServerToolTransport.ts b/apps/server/src/modules/AgentRuntime/adapters/ServerToolTransport.ts
-index 3294817257..0cc38e459d 100644
+index 32948172..0cc38e45 100644
 --- a/apps/server/src/modules/AgentRuntime/adapters/ServerToolTransport.ts
 +++ b/apps/server/src/modules/AgentRuntime/adapters/ServerToolTransport.ts
 @@ -336,7 +336,7 @@ export class ServerToolTransport implements ToolTransport {
@@ -3146,7 +3146,7 @@ index 3294817257..0cc38e459d 100644
                  '[%s] Tool %s failed with kind=%s (attempt %d/%d), retrying ...',
 diff --git a/apps/server/src/modules/AgentRuntime/publishStreamEventOnce.test.ts b/apps/server/src/modules/AgentRuntime/publishStreamEventOnce.test.ts
 new file mode 100644
-index 0000000000..6fdb7b68c3
+index 00000000..6fdb7b68
 --- /dev/null
 +++ b/apps/server/src/modules/AgentRuntime/publishStreamEventOnce.test.ts
 @@ -0,0 +1,114 @@
@@ -3266,7 +3266,7 @@ index 0000000000..6fdb7b68c3
 +});
 diff --git a/apps/server/src/modules/AgentRuntime/publishStreamEventOnce.ts b/apps/server/src/modules/AgentRuntime/publishStreamEventOnce.ts
 new file mode 100644
-index 0000000000..ee688f2b37
+index 00000000..ee688f2b
 --- /dev/null
 +++ b/apps/server/src/modules/AgentRuntime/publishStreamEventOnce.ts
 @@ -0,0 +1,34 @@
@@ -3306,7 +3306,7 @@ index 0000000000..ee688f2b37
 +  )) as string;
 diff --git a/apps/server/src/modules/AgentRuntime/resolveModelMediaCapabilities.test.ts b/apps/server/src/modules/AgentRuntime/resolveModelMediaCapabilities.test.ts
 new file mode 100644
-index 0000000000..bcac1e72bf
+index 00000000..bcac1e72
 --- /dev/null
 +++ b/apps/server/src/modules/AgentRuntime/resolveModelMediaCapabilities.test.ts
 @@ -0,0 +1,29 @@
@@ -3340,7 +3340,7 @@ index 0000000000..bcac1e72bf
 +  });
 +});
 diff --git a/apps/server/src/modules/AgentRuntime/resolveModelMediaCapabilities.ts b/apps/server/src/modules/AgentRuntime/resolveModelMediaCapabilities.ts
-index c3d1ab8bda..74fa9ec4cb 100644
+index c3d1ab8b..74fa9ec4 100644
 --- a/apps/server/src/modules/AgentRuntime/resolveModelMediaCapabilities.ts
 +++ b/apps/server/src/modules/AgentRuntime/resolveModelMediaCapabilities.ts
 @@ -1,6 +1,8 @@
@@ -3366,7 +3366,7 @@ index c3d1ab8bda..74fa9ec4cb 100644
      builtinModels.find((item) => item.id === model && item.providerId === provider) ??
 diff --git a/apps/server/src/router-hono/claude-code/index.test.ts b/apps/server/src/router-hono/claude-code/index.test.ts
 new file mode 100644
-index 0000000000..afbab7d14a
+index 00000000..afbab7d1
 --- /dev/null
 +++ b/apps/server/src/router-hono/claude-code/index.test.ts
 @@ -0,0 +1,219 @@
@@ -3591,7 +3591,7 @@ index 0000000000..afbab7d14a
 +});
 diff --git a/apps/server/src/router-hono/claude-code/index.ts b/apps/server/src/router-hono/claude-code/index.ts
 new file mode 100644
-index 0000000000..ce2a0b3185
+index 00000000..ce2a0b31
 --- /dev/null
 +++ b/apps/server/src/router-hono/claude-code/index.ts
 @@ -0,0 +1,201 @@
@@ -3798,7 +3798,7 @@ index 0000000000..ce2a0b3185
 +export default app;
 diff --git a/apps/server/src/router-hono/claude-code/schema.ts b/apps/server/src/router-hono/claude-code/schema.ts
 new file mode 100644
-index 0000000000..984673f2e8
+index 00000000..984673f2
 --- /dev/null
 +++ b/apps/server/src/router-hono/claude-code/schema.ts
 @@ -0,0 +1,89 @@
@@ -3892,7 +3892,7 @@ index 0000000000..984673f2e8
 +  })
 +  .strict();
 diff --git a/apps/server/src/router-hono/index.ts b/apps/server/src/router-hono/index.ts
-index 3f123619e7..ebeb76a4cc 100644
+index 3f123619..ebeb76a4 100644
 --- a/apps/server/src/router-hono/index.ts
 +++ b/apps/server/src/router-hono/index.ts
 @@ -21,6 +21,7 @@ app.get('/health', (c) =>
@@ -3904,7 +3904,7 @@ index 3f123619e7..ebeb76a4cc 100644
  app.all('/api/workflows', (c) => fetchWith(c, () => import('./workflows')));
  app.all('/api/workflows/*', (c) => fetchWith(c, () => import('./workflows')));
 diff --git a/apps/server/src/routers/lambda/aiAgent/hetero.ts b/apps/server/src/routers/lambda/aiAgent/hetero.ts
-index 9079888958..6459e84f70 100644
+index 90798889..6459e84f 100644
 --- a/apps/server/src/routers/lambda/aiAgent/hetero.ts
 +++ b/apps/server/src/routers/lambda/aiAgent/hetero.ts
 @@ -20,6 +20,7 @@ import { signHeteroOperationJWT } from '@/libs/trpc/utils/internalJwt';
@@ -3935,7 +3935,7 @@ index 9079888958..6459e84f70 100644
        // Mobile. OSS returns `handled:false` and preserves the legacy stream
        // publish below. A claimed response is authoritative: client-supplied
 diff --git a/apps/server/src/routers/lambda/aiProvider.ts b/apps/server/src/routers/lambda/aiProvider.ts
-index c8036c4e64..8cdf855897 100644
+index c8036c4e..8cdf8558 100644
 --- a/apps/server/src/routers/lambda/aiProvider.ts
 +++ b/apps/server/src/routers/lambda/aiProvider.ts
 @@ -24,6 +24,8 @@ import { getServerGlobalConfig } from '@/server/globalConfig';
@@ -3974,7 +3974,7 @@ index c8036c4e64..8cdf855897 100644
        // restricted API keys must not exfiltrate decrypted provider credentials
 diff --git a/apps/server/src/routers/lambda/claudeCode.ts b/apps/server/src/routers/lambda/claudeCode.ts
 new file mode 100644
-index 0000000000..07ee7272b8
+index 00000000..07ee7272
 --- /dev/null
 +++ b/apps/server/src/routers/lambda/claudeCode.ts
 @@ -0,0 +1,25 @@
@@ -4004,7 +4004,7 @@ index 0000000000..07ee7272b8
 +  ),
 +});
 diff --git a/apps/server/src/routers/lambda/index.ts b/apps/server/src/routers/lambda/index.ts
-index f9ef80cfee..bfff5f9ac1 100644
+index f9ef80cf..bfff5f9a 100644
 --- a/apps/server/src/routers/lambda/index.ts
 +++ b/apps/server/src/routers/lambda/index.ts
 @@ -51,6 +51,7 @@ import { canvasRouter } from './canvas';
@@ -4024,7 +4024,7 @@ index f9ef80cfee..bfff5f9ac1 100644
    config: configRouter,
    connector: connectorRouter,
 diff --git a/apps/server/src/services/agentRuntime/AgentRuntimeService/createOperation.ts b/apps/server/src/services/agentRuntime/AgentRuntimeService/createOperation.ts
-index 5f28bf2b84..36c124a222 100644
+index 5f28bf2b..36c124a2 100644
 --- a/apps/server/src/services/agentRuntime/AgentRuntimeService/createOperation.ts
 +++ b/apps/server/src/services/agentRuntime/AgentRuntimeService/createOperation.ts
 @@ -1,3 +1,4 @@
@@ -4050,7 +4050,7 @@ index 5f28bf2b84..36c124a222 100644
          ? deriveAgentInterventionQueueDeduplicationId(operationId, initialStepCount)
          : undefined;
 diff --git a/apps/server/src/services/agentRuntime/AgentRuntimeService/executeStep/index.ts b/apps/server/src/services/agentRuntime/AgentRuntimeService/executeStep/index.ts
-index 29924f6e3e..ef5feef265 100644
+index 29924f6e..ef5feef2 100644
 --- a/apps/server/src/services/agentRuntime/AgentRuntimeService/executeStep/index.ts
 +++ b/apps/server/src/services/agentRuntime/AgentRuntimeService/executeStep/index.ts
 @@ -149,6 +149,10 @@ export async function executeStep(
@@ -4065,7 +4065,7 @@ index 29924f6e3e..ef5feef265 100644
        // that init here, after the step claim and before anything is published.
        let deferredInitContext: AgentRuntimeContext | undefined;
 diff --git a/apps/server/src/services/agentRuntime/AgentRuntimeService/index.ts b/apps/server/src/services/agentRuntime/AgentRuntimeService/index.ts
-index 2cab98f3cf..924fda4d78 100644
+index 2cab98f3..924fda4d 100644
 --- a/apps/server/src/services/agentRuntime/AgentRuntimeService/index.ts
 +++ b/apps/server/src/services/agentRuntime/AgentRuntimeService/index.ts
 @@ -615,6 +615,11 @@ export class AgentRuntimeService {
@@ -4081,7 +4081,7 @@ index 2cab98f3cf..924fda4d78 100644
      return computeDeviceContext(this.context, ...args);
    }
 diff --git a/apps/server/src/services/agentRuntime/AgentRuntimeService/operationControl.ts b/apps/server/src/services/agentRuntime/AgentRuntimeService/operationControl.ts
-index 50b35fd949..e212aca790 100644
+index 50b35fd9..e212aca7 100644
 --- a/apps/server/src/services/agentRuntime/AgentRuntimeService/operationControl.ts
 +++ b/apps/server/src/services/agentRuntime/AgentRuntimeService/operationControl.ts
 @@ -38,6 +38,7 @@ export type OperationControlDeps = Pick<
@@ -4138,7 +4138,7 @@ index 50b35fd949..e212aca790 100644
      if (['done', 'error', 'interrupted', 'abandoned'].includes(operation.status)) return true;
  
 diff --git a/apps/server/src/services/agentRuntime/AgentRuntimeService/operationInitSlots.ts b/apps/server/src/services/agentRuntime/AgentRuntimeService/operationInitSlots.ts
-index 5adee6b70d..c21bd9d322 100644
+index 5adee6b7..c21bd9d3 100644
 --- a/apps/server/src/services/agentRuntime/AgentRuntimeService/operationInitSlots.ts
 +++ b/apps/server/src/services/agentRuntime/AgentRuntimeService/operationInitSlots.ts
 @@ -1,5 +1,6 @@
@@ -4157,7 +4157,7 @@ index 5adee6b70d..c21bd9d322 100644
        ...(params.clientProtocol === 2 && { clientProtocol: 2 as const }),
        ...(params.includeFinalState === true && { includeFinalState: true }),
 diff --git a/apps/server/src/services/agentRuntime/AgentRuntimeService/runtimeFactory.ts b/apps/server/src/services/agentRuntime/AgentRuntimeService/runtimeFactory.ts
-index 534061ad97..6e2d24c1b6 100644
+index 534061ad..6e2d24c1 100644
 --- a/apps/server/src/services/agentRuntime/AgentRuntimeService/runtimeFactory.ts
 +++ b/apps/server/src/services/agentRuntime/AgentRuntimeService/runtimeFactory.ts
 @@ -241,7 +241,7 @@ export async function createAgentRuntime(
@@ -4171,7 +4171,7 @@ index 534061ad97..6e2d24c1b6 100644
  /**
 diff --git a/apps/server/src/services/agentRuntime/CompletionLifecycle/index.backgroundDb.test.ts b/apps/server/src/services/agentRuntime/CompletionLifecycle/index.backgroundDb.test.ts
 new file mode 100644
-index 0000000000..a2e24d8ff2
+index 00000000..a2e24d8f
 --- /dev/null
 +++ b/apps/server/src/services/agentRuntime/CompletionLifecycle/index.backgroundDb.test.ts
 @@ -0,0 +1,113 @@
@@ -4289,7 +4289,7 @@ index 0000000000..a2e24d8ff2
 +  });
 +});
 diff --git a/apps/server/src/services/agentRuntime/CompletionLifecycle/index.ts b/apps/server/src/services/agentRuntime/CompletionLifecycle/index.ts
-index bac36b017b..8b1855e4c5 100644
+index bac36b01..8b1855e4 100644
 --- a/apps/server/src/services/agentRuntime/CompletionLifecycle/index.ts
 +++ b/apps/server/src/services/agentRuntime/CompletionLifecycle/index.ts
 @@ -83,6 +83,7 @@ export class CompletionLifecycle {
@@ -4379,10 +4379,10 @@ index bac36b017b..8b1855e4c5 100644
  
    private async recoverLastAssistantContent(
 diff --git a/apps/server/src/services/agentRuntime/StaleOperationReaper.ts b/apps/server/src/services/agentRuntime/StaleOperationReaper.ts
-index 3022d52220..16546c5e56 100644
+index 7c983353..9bd22efa 100644
 --- a/apps/server/src/services/agentRuntime/StaleOperationReaper.ts
 +++ b/apps/server/src/services/agentRuntime/StaleOperationReaper.ts
-@@ -271,6 +271,7 @@ export class StaleOperationReaper {
+@@ -248,6 +248,7 @@ export class StaleOperationReaper {
          // the coordinator state, and the abandon path re-reads the row itself.
          .select({
            id: agentOperations.id,
@@ -4390,7 +4390,7 @@ index 3022d52220..16546c5e56 100644
            provider: agentOperations.provider,
            updatedAt: agentOperations.updatedAt,
            userId: agentOperations.userId,
-@@ -299,6 +300,7 @@ export class StaleOperationReaper {
+@@ -276,6 +277,7 @@ export class StaleOperationReaper {
    private async recover(
      candidate: {
        id: string;
@@ -4398,7 +4398,7 @@ index 3022d52220..16546c5e56 100644
        provider: string | null;
        updatedAt: Date;
        userId: string;
-@@ -308,6 +310,9 @@ export class StaleOperationReaper {
+@@ -285,6 +287,9 @@ export class StaleOperationReaper {
      heteroStaleBefore: Date,
      maxRedriveAttempts: number,
    ): Promise<'abandoned' | 'alive' | 'redriven' | 'skipped'> {
@@ -4409,7 +4409,7 @@ index 3022d52220..16546c5e56 100644
      const operationModel = new AgentOperationModel(
        this.db,
 diff --git a/apps/server/src/services/agentRuntime/__tests__/StaleOperationReaper.test.ts b/apps/server/src/services/agentRuntime/__tests__/StaleOperationReaper.test.ts
-index a225188593..0b31980bca 100644
+index a2251885..0b31980b 100644
 --- a/apps/server/src/services/agentRuntime/__tests__/StaleOperationReaper.test.ts
 +++ b/apps/server/src/services/agentRuntime/__tests__/StaleOperationReaper.test.ts
 @@ -70,6 +70,23 @@ const buildCoordinator = (
@@ -4437,7 +4437,7 @@ index a225188593..0b31980bca 100644
    metadata: {},
    status: 'running',
 diff --git a/apps/server/src/services/aiAgent/deviceAccessPolicy.test.ts b/apps/server/src/services/aiAgent/deviceAccessPolicy.test.ts
-index 4c2a59f276..4bc292ff01 100644
+index 4c2a59f2..4bc292ff 100644
 --- a/apps/server/src/services/aiAgent/deviceAccessPolicy.test.ts
 +++ b/apps/server/src/services/aiAgent/deviceAccessPolicy.test.ts
 @@ -13,6 +13,18 @@ const baseBotContext = (overrides: Partial<ChatTopicBotContext> = {}): ChatTopic
@@ -4460,7 +4460,7 @@ index 4c2a59f276..4bc292ff01 100644
      expect(resolveDeviceAccessPolicy({})).toEqual({
        canUseDevice: true,
 diff --git a/apps/server/src/services/aiAgent/deviceAccessPolicy.ts b/apps/server/src/services/aiAgent/deviceAccessPolicy.ts
-index 316492b961..d76b6a91c4 100644
+index 316492b9..d76b6a91 100644
 --- a/apps/server/src/services/aiAgent/deviceAccessPolicy.ts
 +++ b/apps/server/src/services/aiAgent/deviceAccessPolicy.ts
 @@ -1,4 +1,4 @@
@@ -4498,7 +4498,7 @@ index 316492b961..d76b6a91c4 100644
      return { canUseDevice: true, reason: 'first-party' };
    }
 diff --git a/apps/server/src/services/aiAgent/index.ts b/apps/server/src/services/aiAgent/index.ts
-index b057dc085b..46f0913173 100644
+index b057dc08..46f09131 100644
 --- a/apps/server/src/services/aiAgent/index.ts
 +++ b/apps/server/src/services/aiAgent/index.ts
 @@ -650,6 +650,7 @@ export class AiAgentService {
@@ -4510,7 +4510,7 @@ index b057dc085b..46f0913173 100644
      request: AgentRunInitRequest;
      state: AgentState;
 diff --git a/apps/server/src/services/aiAgent/pipeline/deferredInit.ts b/apps/server/src/services/aiAgent/pipeline/deferredInit.ts
-index d30a41c355..583cff1c12 100644
+index d30a41c3..583cff1c 100644
 --- a/apps/server/src/services/aiAgent/pipeline/deferredInit.ts
 +++ b/apps/server/src/services/aiAgent/pipeline/deferredInit.ts
 @@ -145,9 +145,15 @@ export const runDeferredOperationInit = async (
@@ -4586,7 +4586,7 @@ index d30a41c355..583cff1c12 100644
    const { discovery, initialContext, prep } = await runOperationInit(
      {
 diff --git a/apps/server/src/services/aiAgent/pipeline/execTurn.ts b/apps/server/src/services/aiAgent/pipeline/execTurn.ts
-index ee13b5b226..6f5d97e3f4 100644
+index ee13b5b2..6f5d97e3 100644
 --- a/apps/server/src/services/aiAgent/pipeline/execTurn.ts
 +++ b/apps/server/src/services/aiAgent/pipeline/execTurn.ts
 @@ -20,6 +20,10 @@ import type { AgentConfigWithId } from '@/server/services/agent';
@@ -4718,7 +4718,7 @@ index ee13b5b226..6f5d97e3f4 100644
 +  return result;
  };
 diff --git a/apps/server/src/services/aiAgent/pipeline/operationPrep.ts b/apps/server/src/services/aiAgent/pipeline/operationPrep.ts
-index 5149030a0e..07e503ac19 100644
+index 5149030a..07e503ac 100644
 --- a/apps/server/src/services/aiAgent/pipeline/operationPrep.ts
 +++ b/apps/server/src/services/aiAgent/pipeline/operationPrep.ts
 @@ -593,14 +593,21 @@ export const prepareOperation = async (
@@ -4746,7 +4746,7 @@ index 5149030a0e..07e503ac19 100644
        : [];
  
 diff --git a/apps/server/src/services/aiAgent/pipeline/resolveUserMessageParentId.ts b/apps/server/src/services/aiAgent/pipeline/resolveUserMessageParentId.ts
-index 3e7ae946ac..9583b5d2ea 100644
+index 3e7ae946..9583b5d2 100644
 --- a/apps/server/src/services/aiAgent/pipeline/resolveUserMessageParentId.ts
 +++ b/apps/server/src/services/aiAgent/pipeline/resolveUserMessageParentId.ts
 @@ -189,7 +189,7 @@ export const resolveUserMessageParentId = async (
@@ -4760,7 +4760,7 @@ index 3e7ae946ac..9583b5d2ea 100644
    threadId: string | null,
 diff --git a/apps/server/src/services/aiAgent/pipeline/turnSetup.claudeCode.test.ts b/apps/server/src/services/aiAgent/pipeline/turnSetup.claudeCode.test.ts
 new file mode 100644
-index 0000000000..4571eaf378
+index 00000000..4571eaf3
 --- /dev/null
 +++ b/apps/server/src/services/aiAgent/pipeline/turnSetup.claudeCode.test.ts
 @@ -0,0 +1,54 @@
@@ -4819,7 +4819,7 @@ index 0000000000..4571eaf378
 +  });
 +});
 diff --git a/apps/server/src/services/aiAgent/pipeline/turnSetup.ts b/apps/server/src/services/aiAgent/pipeline/turnSetup.ts
-index 573c19b7c9..c78e8f59ce 100644
+index 573c19b7..c78e8f59 100644
 --- a/apps/server/src/services/aiAgent/pipeline/turnSetup.ts
 +++ b/apps/server/src/services/aiAgent/pipeline/turnSetup.ts
 @@ -31,6 +31,7 @@ import { resolveModelExtendParamsForUser } from '@/server/modules/AgentRuntime/a
@@ -4954,7 +4954,7 @@ index 573c19b7c9..c78e8f59ce 100644
    // ── Shared turn setup (runs for BOTH hetero and normal agents) ──────────
 diff --git a/apps/server/src/services/claudeCode/__tests__/claimHistory.integration.test.ts b/apps/server/src/services/claudeCode/__tests__/claimHistory.integration.test.ts
 new file mode 100644
-index 0000000000..f39f203bf7
+index 00000000..f39f203b
 --- /dev/null
 +++ b/apps/server/src/services/claudeCode/__tests__/claimHistory.integration.test.ts
 @@ -0,0 +1,273 @@
@@ -5233,7 +5233,7 @@ index 0000000000..f39f203bf7
 +});
 diff --git a/apps/server/src/services/claudeCode/__tests__/finish.integration.test.ts b/apps/server/src/services/claudeCode/__tests__/finish.integration.test.ts
 new file mode 100644
-index 0000000000..83968f0f5f
+index 00000000..83968f0f
 --- /dev/null
 +++ b/apps/server/src/services/claudeCode/__tests__/finish.integration.test.ts
 @@ -0,0 +1,213 @@
@@ -5452,7 +5452,7 @@ index 0000000000..83968f0f5f
 +});
 diff --git a/apps/server/src/services/claudeCode/__tests__/interventionSettlement.integration.test.ts b/apps/server/src/services/claudeCode/__tests__/interventionSettlement.integration.test.ts
 new file mode 100644
-index 0000000000..2e8f9f66d6
+index 00000000..2e8f9f66
 --- /dev/null
 +++ b/apps/server/src/services/claudeCode/__tests__/interventionSettlement.integration.test.ts
 @@ -0,0 +1,222 @@
@@ -5680,7 +5680,7 @@ index 0000000000..2e8f9f66d6
 +});
 diff --git a/apps/server/src/services/claudeCode/__tests__/ordinaryAssistant.integration.test.ts b/apps/server/src/services/claudeCode/__tests__/ordinaryAssistant.integration.test.ts
 new file mode 100644
-index 0000000000..cc7bfff442
+index 00000000..cc7bfff4
 --- /dev/null
 +++ b/apps/server/src/services/claudeCode/__tests__/ordinaryAssistant.integration.test.ts
 @@ -0,0 +1,244 @@
@@ -5930,7 +5930,7 @@ index 0000000000..cc7bfff442
 +});
 diff --git a/apps/server/src/services/claudeCode/__tests__/projection.integration.test.ts b/apps/server/src/services/claudeCode/__tests__/projection.integration.test.ts
 new file mode 100644
-index 0000000000..9265d22efa
+index 00000000..9265d22e
 --- /dev/null
 +++ b/apps/server/src/services/claudeCode/__tests__/projection.integration.test.ts
 @@ -0,0 +1,182 @@
@@ -6118,7 +6118,7 @@ index 0000000000..9265d22efa
 +});
 diff --git a/apps/server/src/services/claudeCode/__tests__/recover.integration.test.ts b/apps/server/src/services/claudeCode/__tests__/recover.integration.test.ts
 new file mode 100644
-index 0000000000..22420747e6
+index 00000000..22420747
 --- /dev/null
 +++ b/apps/server/src/services/claudeCode/__tests__/recover.integration.test.ts
 @@ -0,0 +1,87 @@
@@ -6211,7 +6211,7 @@ index 0000000000..22420747e6
 +});
 diff --git a/apps/server/src/services/claudeCode/__tests__/testUtils.ts b/apps/server/src/services/claudeCode/__tests__/testUtils.ts
 new file mode 100644
-index 0000000000..dc8b97a5d4
+index 00000000..dc8b97a5
 --- /dev/null
 +++ b/apps/server/src/services/claudeCode/__tests__/testUtils.ts
 @@ -0,0 +1,116 @@
@@ -6333,7 +6333,7 @@ index 0000000000..dc8b97a5d4
 +});
 diff --git a/apps/server/src/services/claudeCode/__tests__/tools.integration.test.ts b/apps/server/src/services/claudeCode/__tests__/tools.integration.test.ts
 new file mode 100644
-index 0000000000..eb1a518d5c
+index 00000000..eb1a518d
 --- /dev/null
 +++ b/apps/server/src/services/claudeCode/__tests__/tools.integration.test.ts
 @@ -0,0 +1,318 @@
@@ -6657,7 +6657,7 @@ index 0000000000..eb1a518d5c
 +});
 diff --git a/apps/server/src/services/claudeCode/buildContext.test.ts b/apps/server/src/services/claudeCode/buildContext.test.ts
 new file mode 100644
-index 0000000000..d371389039
+index 00000000..d3713890
 --- /dev/null
 +++ b/apps/server/src/services/claudeCode/buildContext.test.ts
 @@ -0,0 +1,161 @@
@@ -6824,7 +6824,7 @@ index 0000000000..d371389039
 +});
 diff --git a/apps/server/src/services/claudeCode/buildContext.ts b/apps/server/src/services/claudeCode/buildContext.ts
 new file mode 100644
-index 0000000000..3e65806508
+index 00000000..3e658065
 --- /dev/null
 +++ b/apps/server/src/services/claudeCode/buildContext.ts
 @@ -0,0 +1,17 @@
@@ -6847,7 +6847,7 @@ index 0000000000..3e65806508
 +};
 diff --git a/apps/server/src/services/claudeCode/cancel.test.ts b/apps/server/src/services/claudeCode/cancel.test.ts
 new file mode 100644
-index 0000000000..88ee800f60
+index 00000000..88ee800f
 --- /dev/null
 +++ b/apps/server/src/services/claudeCode/cancel.test.ts
 @@ -0,0 +1,38 @@
@@ -6891,7 +6891,7 @@ index 0000000000..88ee800f60
 +});
 diff --git a/apps/server/src/services/claudeCode/cancel.ts b/apps/server/src/services/claudeCode/cancel.ts
 new file mode 100644
-index 0000000000..5681cb6ecd
+index 00000000..5681cb6e
 --- /dev/null
 +++ b/apps/server/src/services/claudeCode/cancel.ts
 @@ -0,0 +1,14 @@
@@ -6911,7 +6911,7 @@ index 0000000000..5681cb6ecd
 +};
 diff --git a/apps/server/src/services/claudeCode/deviceTools.test.ts b/apps/server/src/services/claudeCode/deviceTools.test.ts
 new file mode 100644
-index 0000000000..5bac099c5f
+index 00000000..5bac099c
 --- /dev/null
 +++ b/apps/server/src/services/claudeCode/deviceTools.test.ts
 @@ -0,0 +1,18 @@
@@ -6935,7 +6935,7 @@ index 0000000000..5bac099c5f
 +});
 diff --git a/apps/server/src/services/claudeCode/deviceTools.ts b/apps/server/src/services/claudeCode/deviceTools.ts
 new file mode 100644
-index 0000000000..618ada656d
+index 00000000..618ada65
 --- /dev/null
 +++ b/apps/server/src/services/claudeCode/deviceTools.ts
 @@ -0,0 +1,12 @@
@@ -6953,7 +6953,7 @@ index 0000000000..618ada656d
 +  (selection.agencyConfig?.executionTarget === 'device' && !!selection.agencyConfig.boundDeviceId);
 diff --git a/apps/server/src/services/claudeCode/enqueue.ts b/apps/server/src/services/claudeCode/enqueue.ts
 new file mode 100644
-index 0000000000..88f3078068
+index 00000000..88f30780
 --- /dev/null
 +++ b/apps/server/src/services/claudeCode/enqueue.ts
 @@ -0,0 +1,160 @@
@@ -7119,7 +7119,7 @@ index 0000000000..88f3078068
 +};
 diff --git a/apps/server/src/services/claudeCode/finish.ts b/apps/server/src/services/claudeCode/finish.ts
 new file mode 100644
-index 0000000000..8ebf189f07
+index 00000000..8ebf189f
 --- /dev/null
 +++ b/apps/server/src/services/claudeCode/finish.ts
 @@ -0,0 +1,151 @@
@@ -7276,7 +7276,7 @@ index 0000000000..8ebf189f07
 +};
 diff --git a/apps/server/src/services/claudeCode/interventionBridge.test.ts b/apps/server/src/services/claudeCode/interventionBridge.test.ts
 new file mode 100644
-index 0000000000..7c1d0a2c77
+index 00000000..7c1d0a2c
 --- /dev/null
 +++ b/apps/server/src/services/claudeCode/interventionBridge.test.ts
 @@ -0,0 +1,198 @@
@@ -7480,7 +7480,7 @@ index 0000000000..7c1d0a2c77
 +});
 diff --git a/apps/server/src/services/claudeCode/interventionBridge.ts b/apps/server/src/services/claudeCode/interventionBridge.ts
 new file mode 100644
-index 0000000000..631a31ca52
+index 00000000..631a31ca
 --- /dev/null
 +++ b/apps/server/src/services/claudeCode/interventionBridge.ts
 @@ -0,0 +1,194 @@
@@ -7680,7 +7680,7 @@ index 0000000000..631a31ca52
 +};
 diff --git a/apps/server/src/services/claudeCode/loadClaimHistory.ts b/apps/server/src/services/claudeCode/loadClaimHistory.ts
 new file mode 100644
-index 0000000000..99aad0be84
+index 00000000..99aad0be
 --- /dev/null
 +++ b/apps/server/src/services/claudeCode/loadClaimHistory.ts
 @@ -0,0 +1,58 @@
@@ -7744,7 +7744,7 @@ index 0000000000..99aad0be84
 +};
 diff --git a/apps/server/src/services/claudeCode/messageScope.ts b/apps/server/src/services/claudeCode/messageScope.ts
 new file mode 100644
-index 0000000000..33e814a6f5
+index 00000000..33e814a6
 --- /dev/null
 +++ b/apps/server/src/services/claudeCode/messageScope.ts
 @@ -0,0 +1,110 @@
@@ -7860,7 +7860,7 @@ index 0000000000..33e814a6f5
 +};
 diff --git a/apps/server/src/services/claudeCode/prepareClaim.ts b/apps/server/src/services/claudeCode/prepareClaim.ts
 new file mode 100644
-index 0000000000..835595530c
+index 00000000..83559553
 --- /dev/null
 +++ b/apps/server/src/services/claudeCode/prepareClaim.ts
 @@ -0,0 +1,289 @@
@@ -8155,7 +8155,7 @@ index 0000000000..835595530c
 +};
 diff --git a/apps/server/src/services/claudeCode/prepareContext.test.ts b/apps/server/src/services/claudeCode/prepareContext.test.ts
 new file mode 100644
-index 0000000000..19706fa3f5
+index 00000000..19706fa3
 --- /dev/null
 +++ b/apps/server/src/services/claudeCode/prepareContext.test.ts
 @@ -0,0 +1,224 @@
@@ -8385,7 +8385,7 @@ index 0000000000..19706fa3f5
 +});
 diff --git a/apps/server/src/services/claudeCode/prepareContext.ts b/apps/server/src/services/claudeCode/prepareContext.ts
 new file mode 100644
-index 0000000000..1ec39dfa82
+index 00000000..1ec39dfa
 --- /dev/null
 +++ b/apps/server/src/services/claudeCode/prepareContext.ts
 @@ -0,0 +1,134 @@
@@ -8525,7 +8525,7 @@ index 0000000000..1ec39dfa82
 +};
 diff --git a/apps/server/src/services/claudeCode/projectEvents.ts b/apps/server/src/services/claudeCode/projectEvents.ts
 new file mode 100644
-index 0000000000..d4fe39601f
+index 00000000..d4fe3960
 --- /dev/null
 +++ b/apps/server/src/services/claudeCode/projectEvents.ts
 @@ -0,0 +1,148 @@
@@ -8679,7 +8679,7 @@ index 0000000000..d4fe39601f
 +};
 diff --git a/apps/server/src/services/claudeCode/recover.ts b/apps/server/src/services/claudeCode/recover.ts
 new file mode 100644
-index 0000000000..32366955c8
+index 00000000..32366955
 --- /dev/null
 +++ b/apps/server/src/services/claudeCode/recover.ts
 @@ -0,0 +1,52 @@
@@ -8737,7 +8737,7 @@ index 0000000000..32366955c8
 +};
 diff --git a/apps/server/src/services/claudeCode/resolveTools.ts b/apps/server/src/services/claudeCode/resolveTools.ts
 new file mode 100644
-index 0000000000..213f6a952a
+index 00000000..213f6a95
 --- /dev/null
 +++ b/apps/server/src/services/claudeCode/resolveTools.ts
 @@ -0,0 +1,33 @@
@@ -8776,7 +8776,7 @@ index 0000000000..213f6a952a
 +};
 diff --git a/apps/server/src/services/claudeCode/runtimeState.test.ts b/apps/server/src/services/claudeCode/runtimeState.test.ts
 new file mode 100644
-index 0000000000..23da6f3d45
+index 00000000..23da6f3d
 --- /dev/null
 +++ b/apps/server/src/services/claudeCode/runtimeState.test.ts
 @@ -0,0 +1,38 @@
@@ -8820,7 +8820,7 @@ index 0000000000..23da6f3d45
 +});
 diff --git a/apps/server/src/services/claudeCode/runtimeState.ts b/apps/server/src/services/claudeCode/runtimeState.ts
 new file mode 100644
-index 0000000000..b40251ce8d
+index 00000000..b40251ce
 --- /dev/null
 +++ b/apps/server/src/services/claudeCode/runtimeState.ts
 @@ -0,0 +1,44 @@
@@ -8870,7 +8870,7 @@ index 0000000000..b40251ce8d
 +};
 diff --git a/apps/server/src/services/claudeCode/status.test.ts b/apps/server/src/services/claudeCode/status.test.ts
 new file mode 100644
-index 0000000000..1e6c8b9caa
+index 00000000..1e6c8b9c
 --- /dev/null
 +++ b/apps/server/src/services/claudeCode/status.test.ts
 @@ -0,0 +1,30 @@
@@ -8906,7 +8906,7 @@ index 0000000000..1e6c8b9caa
 +});
 diff --git a/apps/server/src/services/claudeCode/status.ts b/apps/server/src/services/claudeCode/status.ts
 new file mode 100644
-index 0000000000..f5cd6531de
+index 00000000..f5cd6531
 --- /dev/null
 +++ b/apps/server/src/services/claudeCode/status.ts
 @@ -0,0 +1,32 @@
@@ -8944,7 +8944,7 @@ index 0000000000..f5cd6531de
 +};
 diff --git a/apps/server/src/services/claudeCode/toolBridge.test.ts b/apps/server/src/services/claudeCode/toolBridge.test.ts
 new file mode 100644
-index 0000000000..cbebf73c67
+index 00000000..cbebf73c
 --- /dev/null
 +++ b/apps/server/src/services/claudeCode/toolBridge.test.ts
 @@ -0,0 +1,278 @@
@@ -9228,7 +9228,7 @@ index 0000000000..cbebf73c67
 +});
 diff --git a/apps/server/src/services/claudeCode/toolBridge.ts b/apps/server/src/services/claudeCode/toolBridge.ts
 new file mode 100644
-index 0000000000..1cf87c0247
+index 00000000..1cf87c02
 --- /dev/null
 +++ b/apps/server/src/services/claudeCode/toolBridge.ts
 @@ -0,0 +1,282 @@
@@ -9515,7 +9515,7 @@ index 0000000000..1cf87c0247
 +  }
 +};
 diff --git a/apps/server/src/services/heterogeneousAgent/HeterogeneousPersistenceHandler/index.interventionAck.test.ts b/apps/server/src/services/heterogeneousAgent/HeterogeneousPersistenceHandler/index.interventionAck.test.ts
-index 240ff13f8a..0f18f609eb 100644
+index 240ff13f..0f18f609 100644
 --- a/apps/server/src/services/heterogeneousAgent/HeterogeneousPersistenceHandler/index.interventionAck.test.ts
 +++ b/apps/server/src/services/heterogeneousAgent/HeterogeneousPersistenceHandler/index.interventionAck.test.ts
 @@ -232,7 +232,11 @@ describe('HeterogeneousPersistenceHandler — event branch coverage', () => {
@@ -9532,7 +9532,7 @@ index 240ff13f8a..0f18f609eb 100644
          transition: 'pending',
        });
 diff --git a/apps/server/src/services/heterogeneousAgent/HeterogeneousPersistenceHandler/index.ts b/apps/server/src/services/heterogeneousAgent/HeterogeneousPersistenceHandler/index.ts
-index ceea14cb7b..547d8d8f24 100644
+index ceea14cb..547d8d8f 100644
 --- a/apps/server/src/services/heterogeneousAgent/HeterogeneousPersistenceHandler/index.ts
 +++ b/apps/server/src/services/heterogeneousAgent/HeterogeneousPersistenceHandler/index.ts
 @@ -100,6 +100,10 @@ export class HeterogeneousPersistenceHandler {
@@ -9659,7 +9659,7 @@ index ceea14cb7b..547d8d8f24 100644
        await this.deps.topicModel.updateMetadata(topicId, { heteroSessionId: sessionId });
        log('persisted sessionId topic=%s sessionId=%s', topicId, sessionId);
 diff --git a/apps/server/src/services/heterogeneousAgent/HeterogeneousPersistenceHandler/intervention.ts b/apps/server/src/services/heterogeneousAgent/HeterogeneousPersistenceHandler/intervention.ts
-index 24ae3f0792..21d3e13968 100644
+index 24ae3f07..21d3e139 100644
 --- a/apps/server/src/services/heterogeneousAgent/HeterogeneousPersistenceHandler/intervention.ts
 +++ b/apps/server/src/services/heterogeneousAgent/HeterogeneousPersistenceHandler/intervention.ts
 @@ -192,7 +192,7 @@ export async function applyToolIntervention(
@@ -9672,7 +9672,7 @@ index 24ae3f0792..21d3e13968 100644
    await deps.messageModel.updatePluginState(toolMsgId, {
      [HETEROGENEOUS_INTERVENTION_STATE_KEY]: durableState,
 diff --git a/apps/server/src/services/heterogeneousAgent/HeterogeneousPersistenceHandler/stateSync.ts b/apps/server/src/services/heterogeneousAgent/HeterogeneousPersistenceHandler/stateSync.ts
-index 77ee8bee4d..0a8b2ac8f8 100644
+index 77ee8bee..0a8b2ac8 100644
 --- a/apps/server/src/services/heterogeneousAgent/HeterogeneousPersistenceHandler/stateSync.ts
 +++ b/apps/server/src/services/heterogeneousAgent/HeterogeneousPersistenceHandler/stateSync.ts
 @@ -61,7 +61,8 @@ export async function loadOrCreateState(
@@ -9725,7 +9725,7 @@ index 77ee8bee4d..0a8b2ac8f8 100644
    const marker = topic?.metadata?.runningOperation;
    const running =
 diff --git a/apps/server/src/services/heterogeneousAgent/HeterogeneousPersistenceHandler/types.ts b/apps/server/src/services/heterogeneousAgent/HeterogeneousPersistenceHandler/types.ts
-index 394e697fc8..f061b0a1c7 100644
+index 394e697f..f061b0a1 100644
 --- a/apps/server/src/services/heterogeneousAgent/HeterogeneousPersistenceHandler/types.ts
 +++ b/apps/server/src/services/heterogeneousAgent/HeterogeneousPersistenceHandler/types.ts
 @@ -61,6 +61,9 @@ export interface OperationState {
@@ -9750,7 +9750,7 @@ index 394e697fc8..f061b0a1c7 100644
    topicModel: TopicModel;
    userId?: string;
 diff --git a/apps/server/src/services/memory/userMemory/__tests__/extract.workflow.test.ts b/apps/server/src/services/memory/userMemory/__tests__/extract.workflow.test.ts
-index 4ec44df01d..1fad49cead 100644
+index 4ec44df0..1fad49ce 100644
 --- a/apps/server/src/services/memory/userMemory/__tests__/extract.workflow.test.ts
 +++ b/apps/server/src/services/memory/userMemory/__tests__/extract.workflow.test.ts
 @@ -65,6 +65,20 @@ vi.mock('@/libs/qstash', () => ({
@@ -9775,7 +9775,7 @@ index 4ec44df01d..1fad49cead 100644
    const originalServiceUserId = process.env.MEMORY_EXTRACTION_HOURLY_TASK_USER_ID;
    const originalQstashToken = process.env.QSTASH_TOKEN;
 diff --git a/apps/server/src/services/memory/userMemory/extract/workflow.ts b/apps/server/src/services/memory/userMemory/extract/workflow.ts
-index cf4139feaa..a2c15c0792 100644
+index cf4139fe..a2c15c07 100644
 --- a/apps/server/src/services/memory/userMemory/extract/workflow.ts
 +++ b/apps/server/src/services/memory/userMemory/extract/workflow.ts
 @@ -54,6 +54,9 @@ const getProcessUserTopicsFlowControl = (): FlowControl => {
@@ -9816,7 +9816,7 @@ index cf4139feaa..a2c15c0792 100644
        } satisfies FlowControl,
        headers: options?.extraHeaders,
 diff --git a/docs/development/database-schema.dbml b/docs/development/database-schema.dbml
-index 3a5ec36ade..d5cd7672ef 100644
+index 1038a7cd..01130bc5 100644
 --- a/docs/development/database-schema.dbml
 +++ b/docs/development/database-schema.dbml
 @@ -1492,6 +1492,87 @@ table chat_groups_agents {
@@ -9908,7 +9908,7 @@ index 3a5ec36ade..d5cd7672ef 100644
    id uuid [pk, not null, default: `gen_random_uuid()`]
    user_connector_id uuid [not null]
 diff --git a/locales/en-US/chat.json b/locales/en-US/chat.json
-index 402419ff7c..290711d8cf 100644
+index 31572484..939ca6ba 100644
 --- a/locales/en-US/chat.json
 +++ b/locales/en-US/chat.json
 @@ -135,6 +135,14 @@
@@ -9927,7 +9927,7 @@ index 402419ff7c..290711d8cf 100644
    "cliAuthGuide.actions.openCloudCredentials": "Update Cloud Token",
    "cliAuthGuide.actions.openDocs": "Open Sign-in Guide",
 diff --git a/locales/en-US/providers.json b/locales/en-US/providers.json
-index 5832d5c74e..c36cbbd85c 100644
+index 5832d5c7..c36cbbd8 100644
 --- a/locales/en-US/providers.json
 +++ b/locales/en-US/providers.json
 @@ -14,6 +14,9 @@
@@ -9941,7 +9941,7 @@ index 5832d5c74e..c36cbbd85c 100644
    "cohere.description": "Cohere delivers cutting-edge multilingual models, advanced retrieval, and AI workspaces for modern enterprises—all in one secure platform.",
    "cometapi.description": "CometAPI provides access to frontier models from OpenAI, Anthropic, Google, and more, letting users choose the best model and pricing for diverse use cases.",
 diff --git a/locales/zh-CN/chat.json b/locales/zh-CN/chat.json
-index 55da3d86b8..0844f13035 100644
+index a36de061..5093f0c6 100644
 --- a/locales/zh-CN/chat.json
 +++ b/locales/zh-CN/chat.json
 @@ -135,6 +135,14 @@
@@ -9960,7 +9960,7 @@ index 55da3d86b8..0844f13035 100644
    "cliAuthGuide.actions.openCloudCredentials": "更新云端 Token",
    "cliAuthGuide.actions.openDocs": "打开登录指南",
 diff --git a/locales/zh-CN/providers.json b/locales/zh-CN/providers.json
-index 3e2c6ca4fa..cd1a42f2f3 100644
+index 3e2c6ca4..cd1a42f2 100644
 --- a/locales/zh-CN/providers.json
 +++ b/locales/zh-CN/providers.json
 @@ -14,6 +14,9 @@
@@ -9974,7 +9974,7 @@ index 3e2c6ca4fa..cd1a42f2f3 100644
    "cohere.description": "Cohere 提供前沿的多语言模型、先进的检索能力和 AI 工作空间，为现代企业提供一体化、安全的平台。",
    "cometapi.description": "CometAPI 提供对 OpenAI、Anthropic、Google 等前沿模型的访问，用户可根据不同需求选择最优模型与价格。",
 diff --git a/packages/agent-gateway-client/src/client.ts b/packages/agent-gateway-client/src/client.ts
-index 4f5767458d..b4f2b52f06 100644
+index 4f576745..b4f2b52f 100644
 --- a/packages/agent-gateway-client/src/client.ts
 +++ b/packages/agent-gateway-client/src/client.ts
 @@ -1,3 +1,4 @@
@@ -10000,7 +10000,7 @@ index 4f5767458d..b4f2b52f06 100644
            // A single WebSocket is multiplexed: alongside this op's events it may
 diff --git a/packages/agent-gateway-client/src/durableEventGuard.test.ts b/packages/agent-gateway-client/src/durableEventGuard.test.ts
 new file mode 100644
-index 0000000000..536123a9d9
+index 00000000..536123a9
 --- /dev/null
 +++ b/packages/agent-gateway-client/src/durableEventGuard.test.ts
 @@ -0,0 +1,23 @@
@@ -10029,7 +10029,7 @@ index 0000000000..536123a9d9
 +});
 diff --git a/packages/agent-gateway-client/src/durableEventGuard.ts b/packages/agent-gateway-client/src/durableEventGuard.ts
 new file mode 100644
-index 0000000000..85f2bf1a23
+index 00000000..85f2bf1a
 --- /dev/null
 +++ b/packages/agent-gateway-client/src/durableEventGuard.ts
 @@ -0,0 +1,16 @@
@@ -10050,7 +10050,7 @@ index 0000000000..85f2bf1a23
 +  }
 +}
 diff --git a/packages/agent-gateway-client/src/mux/GatewayMuxClient.ts b/packages/agent-gateway-client/src/mux/GatewayMuxClient.ts
-index a223759197..527865a1ea 100644
+index ac7fad0d..49721091 100644
 --- a/packages/agent-gateway-client/src/mux/GatewayMuxClient.ts
 +++ b/packages/agent-gateway-client/src/mux/GatewayMuxClient.ts
 @@ -1,3 +1,4 @@
@@ -10075,7 +10075,7 @@ index a223759197..527865a1ea 100644
          // subscription — only THIS op's terminal (or one with no operationId,
          // legacy gateway) is terminal here. Mirrors v1 exactly.
 diff --git a/packages/agent-runtime/src/agents/GeneralChatAgent.ts b/packages/agent-runtime/src/agents/GeneralChatAgent.ts
-index 73b8db4ef4..0099742a3d 100644
+index 73b8db4e..0099742a 100644
 --- a/packages/agent-runtime/src/agents/GeneralChatAgent.ts
 +++ b/packages/agent-runtime/src/agents/GeneralChatAgent.ts
 @@ -167,7 +167,7 @@ export class GeneralChatAgent implements Agent {
@@ -10088,7 +10088,7 @@ index 73b8db4ef4..0099742a3d 100644
      state: AgentState,
    ): Promise<[ChatToolPayload[], ChatToolPayload[]]> {
 diff --git a/packages/agent-runtime/src/types/state.ts b/packages/agent-runtime/src/types/state.ts
-index bc3a777ba2..4b689d9bbd 100644
+index bc3a777b..4b689d9b 100644
 --- a/packages/agent-runtime/src/types/state.ts
 +++ b/packages/agent-runtime/src/types/state.ts
 @@ -16,6 +16,7 @@ import type {
@@ -10109,7 +10109,7 @@ index bc3a777ba2..4b689d9bbd 100644
  
  /**
 diff --git a/packages/business/config/src/llm.ts b/packages/business/config/src/llm.ts
-index 101e507759..e30d490c6a 100644
+index 101e5077..e30d490c 100644
 --- a/packages/business/config/src/llm.ts
 +++ b/packages/business/config/src/llm.ts
 @@ -21,6 +21,8 @@ const providerDefaults: Partial<
@@ -10123,7 +10123,7 @@ index 101e507759..e30d490c6a 100644
      config[provider] = {
 diff --git a/packages/database/src/models/__tests__/claudeCode.test.ts b/packages/database/src/models/__tests__/claudeCode.test.ts
 new file mode 100644
-index 0000000000..45e6f06243
+index 00000000..45e6f062
 --- /dev/null
 +++ b/packages/database/src/models/__tests__/claudeCode.test.ts
 @@ -0,0 +1,671 @@
@@ -10800,7 +10800,7 @@ index 0000000000..45e6f06243
 +});
 diff --git a/packages/database/src/models/claudeCode.ts b/packages/database/src/models/claudeCode.ts
 new file mode 100644
-index 0000000000..8d3cf1b1c2
+index 00000000..8d3cf1b1
 --- /dev/null
 +++ b/packages/database/src/models/claudeCode.ts
 @@ -0,0 +1,979 @@
@@ -11785,7 +11785,7 @@ index 0000000000..8d3cf1b1c2
 +}
 diff --git a/packages/database/src/schemas/claudeCode.ts b/packages/database/src/schemas/claudeCode.ts
 new file mode 100644
-index 0000000000..5510f3696e
+index 00000000..5510f369
 --- /dev/null
 +++ b/packages/database/src/schemas/claudeCode.ts
 @@ -0,0 +1,132 @@
@@ -11922,7 +11922,7 @@ index 0000000000..5510f3696e
 +export type ClaudeCodeEventItem = typeof claudeCodeEvents.$inferSelect;
 +export type ClaudeCodeToolReceiptItem = typeof claudeCodeToolReceipts.$inferSelect;
 diff --git a/packages/database/src/schemas/index.ts b/packages/database/src/schemas/index.ts
-index b2bbf841f8..6713e68109 100644
+index b2bbf841..6713e681 100644
 --- a/packages/database/src/schemas/index.ts
 +++ b/packages/database/src/schemas/index.ts
 @@ -21,6 +21,7 @@ export * from './asyncTask';
@@ -11935,7 +11935,7 @@ index b2bbf841f8..6713e68109 100644
  export * from './device';
 diff --git a/packages/heterogeneous-agents/src/builtinMcp/LobeBuiltinMcpServer.operationTools.test.ts b/packages/heterogeneous-agents/src/builtinMcp/LobeBuiltinMcpServer.operationTools.test.ts
 new file mode 100644
-index 0000000000..3b0b6d7ad3
+index 00000000..3b0b6d7a
 --- /dev/null
 +++ b/packages/heterogeneous-agents/src/builtinMcp/LobeBuiltinMcpServer.operationTools.test.ts
 @@ -0,0 +1,366 @@
@@ -12306,7 +12306,7 @@ index 0000000000..3b0b6d7ad3
 +  });
 +});
 diff --git a/packages/heterogeneous-agents/src/builtinMcp/LobeBuiltinMcpServer.ts b/packages/heterogeneous-agents/src/builtinMcp/LobeBuiltinMcpServer.ts
-index 1ee679d17b..c20f88bdd5 100644
+index 1ee679d1..c20f88bd 100644
 --- a/packages/heterogeneous-agents/src/builtinMcp/LobeBuiltinMcpServer.ts
 +++ b/packages/heterogeneous-agents/src/builtinMcp/LobeBuiltinMcpServer.ts
 @@ -14,6 +14,8 @@ import {
@@ -12561,7 +12561,7 @@ index 1ee679d17b..c20f88bdd5 100644
          // SSE keepalive: every progressIntervalMs send a progress
          // notification so CC's transport doesn't time out on long waits.
 diff --git a/packages/heterogeneous-agents/src/builtinMcp/index.ts b/packages/heterogeneous-agents/src/builtinMcp/index.ts
-index 21af3dbdeb..d4e38a62a4 100644
+index 21af3dbd..d4e38a62 100644
 --- a/packages/heterogeneous-agents/src/builtinMcp/index.ts
 +++ b/packages/heterogeneous-agents/src/builtinMcp/index.ts
 @@ -11,3 +11,8 @@ export {
@@ -12575,7 +12575,7 @@ index 21af3dbdeb..d4e38a62a4 100644
 +} from './operationTools';
 diff --git a/packages/heterogeneous-agents/src/builtinMcp/operationTools.ts b/packages/heterogeneous-agents/src/builtinMcp/operationTools.ts
 new file mode 100644
-index 0000000000..7c23180b66
+index 00000000..7c23180b
 --- /dev/null
 +++ b/packages/heterogeneous-agents/src/builtinMcp/operationTools.ts
 @@ -0,0 +1,75 @@
@@ -12655,7 +12655,7 @@ index 0000000000..7c23180b66
 +  });
 +};
 diff --git a/packages/heterogeneous-agents/src/protocol/index.ts b/packages/heterogeneous-agents/src/protocol/index.ts
-index b83421d784..b76a5f7df6 100644
+index b83421d7..b76a5f7d 100644
 --- a/packages/heterogeneous-agents/src/protocol/index.ts
 +++ b/packages/heterogeneous-agents/src/protocol/index.ts
 @@ -28,6 +28,15 @@ export {
@@ -12676,7 +12676,7 @@ index b83421d784..b76a5f7df6 100644
    AgentImageBlock,
 diff --git a/packages/heterogeneous-agents/src/protocol/serverAssistant.ts b/packages/heterogeneous-agents/src/protocol/serverAssistant.ts
 new file mode 100644
-index 0000000000..391a18b3bf
+index 00000000..391a18b3
 --- /dev/null
 +++ b/packages/heterogeneous-agents/src/protocol/serverAssistant.ts
 @@ -0,0 +1,48 @@
@@ -12730,7 +12730,7 @@ index 0000000000..391a18b3bf
 +}
 diff --git a/packages/heterogeneous-agents/src/spawn/assistantIntegration.test.ts b/packages/heterogeneous-agents/src/spawn/assistantIntegration.test.ts
 new file mode 100644
-index 0000000000..f4fb1efca4
+index 00000000..f4fb1efc
 --- /dev/null
 +++ b/packages/heterogeneous-agents/src/spawn/assistantIntegration.test.ts
 @@ -0,0 +1,97 @@
@@ -12833,7 +12833,7 @@ index 0000000000..f4fb1efca4
 +});
 diff --git a/packages/heterogeneous-agents/src/spawn/assistantIntegration.ts b/packages/heterogeneous-agents/src/spawn/assistantIntegration.ts
 new file mode 100644
-index 0000000000..dba2cb802a
+index 00000000..dba2cb80
 --- /dev/null
 +++ b/packages/heterogeneous-agents/src/spawn/assistantIntegration.ts
 @@ -0,0 +1,96 @@
@@ -12934,7 +12934,7 @@ index 0000000000..dba2cb802a
 +
 +export const ASSISTANT_ISOLATION_ARGS = ['--setting-sources', '', '--strict-mcp-config'] as const;
 diff --git a/packages/heterogeneous-agents/src/spawn/index.ts b/packages/heterogeneous-agents/src/spawn/index.ts
-index ee90b45d7e..5fcfc60cfc 100644
+index ee90b45d..5fcfc60c 100644
 --- a/packages/heterogeneous-agents/src/spawn/index.ts
 +++ b/packages/heterogeneous-agents/src/spawn/index.ts
 @@ -178,6 +178,7 @@ export {
@@ -12947,7 +12947,7 @@ index ee90b45d7e..5fcfc60cfc 100644
    type BuildClaudeCodeDirectEnvInput,
 diff --git a/packages/heterogeneous-agents/src/spawn/spawnAgent.assistant.test.ts b/packages/heterogeneous-agents/src/spawn/spawnAgent.assistant.test.ts
 new file mode 100644
-index 0000000000..586bc67425
+index 00000000..586bc674
 --- /dev/null
 +++ b/packages/heterogeneous-agents/src/spawn/spawnAgent.assistant.test.ts
 @@ -0,0 +1,152 @@
@@ -13105,7 +13105,7 @@ index 0000000000..586bc67425
 +});
 diff --git a/packages/heterogeneous-agents/src/spawn/spawnAgent.cancellation.test.ts b/packages/heterogeneous-agents/src/spawn/spawnAgent.cancellation.test.ts
 new file mode 100644
-index 0000000000..3bba683e57
+index 00000000..3bba683e
 --- /dev/null
 +++ b/packages/heterogeneous-agents/src/spawn/spawnAgent.cancellation.test.ts
 @@ -0,0 +1,62 @@
@@ -13172,7 +13172,7 @@ index 0000000000..3bba683e57
 +  });
 +});
 diff --git a/packages/heterogeneous-agents/src/spawn/spawnAgent.ts b/packages/heterogeneous-agents/src/spawn/spawnAgent.ts
-index 953705daef..ee36143fcc 100644
+index 953705da..ee36143f 100644
 --- a/packages/heterogeneous-agents/src/spawn/spawnAgent.ts
 +++ b/packages/heterogeneous-agents/src/spawn/spawnAgent.ts
 @@ -15,6 +15,12 @@ import {
@@ -13325,7 +13325,7 @@ index 953705daef..ee36143fcc 100644
    const startedAt = Date.now();
    const proc = spawnManaged(cliSpawnPlan.command, cliSpawnPlan.args, {
 diff --git a/packages/locales/src/default/chat.ts b/packages/locales/src/default/chat.ts
-index 60bdb88ac0..306dc12959 100644
+index ae15c80e..1e0bada9 100644
 --- a/packages/locales/src/default/chat.ts
 +++ b/packages/locales/src/default/chat.ts
 @@ -1,4 +1,14 @@
@@ -13344,7 +13344,7 @@ index 60bdb88ac0..306dc12959 100644
    'sharePage.app.help': 'Trouble opening the app?',
    'sharePage.app.helpDescription':
 diff --git a/packages/model-bank/package.json b/packages/model-bank/package.json
-index 1184e801cb..c0217f396a 100644
+index 1184e801..c0217f39 100644
 --- a/packages/model-bank/package.json
 +++ b/packages/model-bank/package.json
 @@ -12,6 +12,7 @@
@@ -13357,7 +13357,7 @@ index 1184e801cb..c0217f396a 100644
      "./ai360": "./src/aiModels/ai360.ts",
 diff --git a/packages/model-bank/src/aiModels/claudeCode.ts b/packages/model-bank/src/aiModels/claudeCode.ts
 new file mode 100644
-index 0000000000..fb42e43ab4
+index 00000000..fb42e43a
 --- /dev/null
 +++ b/packages/model-bank/src/aiModels/claudeCode.ts
 @@ -0,0 +1,5 @@
@@ -13367,7 +13367,7 @@ index 0000000000..fb42e43ab4
 +// still resolve this backend while it is disabled, without advertising API models.
 +export const claudeCodeModels: AiFullModelCard[] = [];
 diff --git a/packages/model-bank/src/aiModels/index.ts b/packages/model-bank/src/aiModels/index.ts
-index 85ce130009..b8b8cf6c7c 100644
+index 85ce1300..b8b8cf6c 100644
 --- a/packages/model-bank/src/aiModels/index.ts
 +++ b/packages/model-bank/src/aiModels/index.ts
 @@ -16,6 +16,7 @@ import { default as bedrock } from './bedrock';
@@ -13395,7 +13395,7 @@ index 85ce130009..b8b8cf6c7c 100644
  export { default as cohere } from './cohere';
  export { default as cometapi } from './cometapi';
 diff --git a/packages/model-bank/src/const/modelProvider.ts b/packages/model-bank/src/const/modelProvider.ts
-index e8922d9d6a..c4691402a3 100644
+index e8922d9d..c4691402 100644
 --- a/packages/model-bank/src/const/modelProvider.ts
 +++ b/packages/model-bank/src/const/modelProvider.ts
 @@ -14,6 +14,7 @@ export enum ModelProvider {
@@ -13408,7 +13408,7 @@ index e8922d9d6a..c4691402a3 100644
    CometAPI = 'cometapi',
 diff --git a/packages/model-bank/src/modelProviders/claudeCode.ts b/packages/model-bank/src/modelProviders/claudeCode.ts
 new file mode 100644
-index 0000000000..1dc606a603
+index 00000000..1dc606a6
 --- /dev/null
 +++ b/packages/model-bank/src/modelProviders/claudeCode.ts
 @@ -0,0 +1,16 @@
@@ -13430,7 +13430,7 @@ index 0000000000..1dc606a603
 +} satisfies ModelProviderCard;
 diff --git a/packages/types/src/assistantRuntime.test.ts b/packages/types/src/assistantRuntime.test.ts
 new file mode 100644
-index 0000000000..453ec738ea
+index 00000000..453ec738
 --- /dev/null
 +++ b/packages/types/src/assistantRuntime.test.ts
 @@ -0,0 +1,12 @@
@@ -13448,7 +13448,7 @@ index 0000000000..453ec738ea
 +});
 diff --git a/packages/types/src/assistantRuntime.ts b/packages/types/src/assistantRuntime.ts
 new file mode 100644
-index 0000000000..e6b35da2ad
+index 00000000..e6b35da2
 --- /dev/null
 +++ b/packages/types/src/assistantRuntime.ts
 @@ -0,0 +1,15 @@
@@ -13469,7 +13469,7 @@ index 0000000000..e6b35da2ad
 +}
 diff --git a/packages/types/src/claudeCode.ts b/packages/types/src/claudeCode.ts
 new file mode 100644
-index 0000000000..9a77becfa9
+index 00000000..9a77becf
 --- /dev/null
 +++ b/packages/types/src/claudeCode.ts
 @@ -0,0 +1,38 @@
@@ -13512,10 +13512,10 @@ index 0000000000..9a77becfa9
 +  toolCallId: string;
 +}
 diff --git a/packages/types/src/index.ts b/packages/types/src/index.ts
-index a83205b483..48e50e0f8d 100644
+index 6e3d7d88..9df798f1 100644
 --- a/packages/types/src/index.ts
 +++ b/packages/types/src/index.ts
-@@ -10,11 +10,13 @@ export * from './aiChat';
+@@ -11,11 +11,13 @@ export * from './aiChat';
  export * from './aiProvider';
  export * from './apiKey';
  export * from './artifact';
@@ -13530,7 +13530,7 @@ index a83205b483..48e50e0f8d 100644
  export * from './creds';
  export * from './dashboard';
 diff --git a/pnpm-workspace.yaml b/pnpm-workspace.yaml
-index 55bb8902eb..45220e2af0 100644
+index 55bb8902..45220e2a 100644
 --- a/pnpm-workspace.yaml
 +++ b/pnpm-workspace.yaml
 @@ -24,6 +24,7 @@ packages:
@@ -13543,7 +13543,7 @@ index 55bb8902eb..45220e2af0 100644
  
 diff --git a/src/app/(backend)/api/claude-code/worker/[[...route]]/route.ts b/src/app/(backend)/api/claude-code/worker/[[...route]]/route.ts
 new file mode 100644
-index 0000000000..be8af1c938
+index 00000000..be8af1c9
 --- /dev/null
 +++ b/src/app/(backend)/api/claude-code/worker/[[...route]]/route.ts
 @@ -0,0 +1,3 @@
@@ -13551,7 +13551,7 @@ index 0000000000..be8af1c938
 +
 +export const POST = (request: Request) => app.fetch(request);
 diff --git a/src/features/AgentProfileCard/AgentProfilePopup.tsx b/src/features/AgentProfileCard/AgentProfilePopup.tsx
-index 3338788c34..a90e6733ce 100644
+index 3338788c..a90e6733 100644
 --- a/src/features/AgentProfileCard/AgentProfilePopup.tsx
 +++ b/src/features/AgentProfileCard/AgentProfilePopup.tsx
 @@ -151,6 +151,7 @@ const AgentProfilePopup = memo<AgentProfilePopupProps>(
@@ -13563,7 +13563,7 @@ index 3338788c34..a90e6733ce 100644
                value={{ model: merged.model, provider: merged.provider ?? undefined }}
                onChange={handleModelChange}
 diff --git a/src/features/ChatInput/ActionBar/Model/index.tsx b/src/features/ChatInput/ActionBar/Model/index.tsx
-index abadb6cfec..a4e3688b57 100644
+index abadb6cf..a4e3688b 100644
 --- a/src/features/ChatInput/ActionBar/Model/index.tsx
 +++ b/src/features/ChatInput/ActionBar/Model/index.tsx
 @@ -5,6 +5,8 @@ import { useTranslation } from 'react-i18next';
@@ -13619,7 +13619,7 @@ index abadb6cfec..a4e3688b57 100644
    // Reasoning effort rides along with the model trigger instead of claiming a
    // second action slot. Like the model, it pins to the composer's topic when
 diff --git a/src/features/ChatInput/ActionBar/Model/useTopicModelSwitch.test.ts b/src/features/ChatInput/ActionBar/Model/useTopicModelSwitch.test.ts
-index 9fe16bb673..6888d9ec2f 100644
+index 9fe16bb6..6888d9ec 100644
 --- a/src/features/ChatInput/ActionBar/Model/useTopicModelSwitch.test.ts
 +++ b/src/features/ChatInput/ActionBar/Model/useTopicModelSwitch.test.ts
 @@ -60,6 +60,22 @@ beforeEach(() => {
@@ -13646,7 +13646,7 @@ index 9fe16bb673..6888d9ec2f 100644
    // outer chat's topic is still the global active one.
    it('shows and switches the agent model when the composer conversation has no topic', async () => {
 diff --git a/src/features/ChatInput/ChatInputNotice/useChatInputNotice.test.tsx b/src/features/ChatInput/ChatInputNotice/useChatInputNotice.test.tsx
-index bf681c7ae6..343540e3a8 100644
+index bf681c7a..343540e3 100644
 --- a/src/features/ChatInput/ChatInputNotice/useChatInputNotice.test.tsx
 +++ b/src/features/ChatInput/ChatInputNotice/useChatInputNotice.test.tsx
 @@ -1,6 +1,10 @@
@@ -13739,7 +13739,7 @@ index bf681c7ae6..343540e3a8 100644
      testState.resourceAccess = {
        canConfigureResource: false,
 diff --git a/src/features/ChatInput/ChatInputNotice/useChatInputNotice.ts b/src/features/ChatInput/ChatInputNotice/useChatInputNotice.ts
-index 47b7b03169..a4c0d5a9d9 100644
+index 47b7b031..a4c0d5a9 100644
 --- a/src/features/ChatInput/ChatInputNotice/useChatInputNotice.ts
 +++ b/src/features/ChatInput/ChatInputNotice/useChatInputNotice.ts
 @@ -10,6 +10,8 @@ import {
@@ -13829,7 +13829,7 @@ index 47b7b03169..a4c0d5a9d9 100644
      isHeterogeneousAgent,
      isModelDisabled,
 diff --git a/src/features/ModelSelect/index.tsx b/src/features/ModelSelect/index.tsx
-index f1361b4e7b..9f89c28dfc 100644
+index f1361b4e..9f89c28d 100644
 --- a/src/features/ModelSelect/index.tsx
 +++ b/src/features/ModelSelect/index.tsx
 @@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
@@ -13876,7 +13876,7 @@ index f1361b4e7b..9f89c28dfc 100644
        if (!providerIds) return fullEnabledList;
        const allowedProviderIds = new Set(providerIds);
 diff --git a/src/features/ModelSelect/resolveStaleModelState.test.ts b/src/features/ModelSelect/resolveStaleModelState.test.ts
-index 599751e630..eeb96c64f4 100644
+index 599751e6..eeb96c64 100644
 --- a/src/features/ModelSelect/resolveStaleModelState.test.ts
 +++ b/src/features/ModelSelect/resolveStaleModelState.test.ts
 @@ -28,6 +28,17 @@ const builtinAiModelList = [
@@ -13898,7 +13898,7 @@ index 599751e630..eeb96c64f4 100644
      expect(
        resolveStaleModelState({ model: 'claude-opus-4-6', provider: 'lobehub' }, context),
 diff --git a/src/features/ModelSelect/resolveStaleModelState.ts b/src/features/ModelSelect/resolveStaleModelState.ts
-index c8d28f2f6e..27e219eacc 100644
+index c8d28f2f..27e219ea 100644
 --- a/src/features/ModelSelect/resolveStaleModelState.ts
 +++ b/src/features/ModelSelect/resolveStaleModelState.ts
 @@ -48,6 +48,9 @@ export const resolveEnableTargetProviderId = (
@@ -13921,7 +13921,7 @@ index c8d28f2f6e..27e219eacc 100644
      builtinAiModelList.find(
 diff --git a/src/hooks/claudeCodeModels.test.ts b/src/hooks/claudeCodeModels.test.ts
 new file mode 100644
-index 0000000000..444aed3cf5
+index 00000000..444aed3c
 --- /dev/null
 +++ b/src/hooks/claudeCodeModels.test.ts
 @@ -0,0 +1,81 @@
@@ -14008,7 +14008,7 @@ index 0000000000..444aed3cf5
 +});
 diff --git a/src/hooks/claudeCodeModels.ts b/src/hooks/claudeCodeModels.ts
 new file mode 100644
-index 0000000000..4fce58550b
+index 00000000..4fce5855
 --- /dev/null
 +++ b/src/hooks/claudeCodeModels.ts
 @@ -0,0 +1,53 @@
@@ -14067,7 +14067,7 @@ index 0000000000..4fce58550b
 +};
 diff --git a/src/hooks/useClaudeCodeModels.test.ts b/src/hooks/useClaudeCodeModels.test.ts
 new file mode 100644
-index 0000000000..92a8571849
+index 00000000..92a85718
 --- /dev/null
 +++ b/src/hooks/useClaudeCodeModels.test.ts
 @@ -0,0 +1,69 @@
@@ -14142,7 +14142,7 @@ index 0000000000..92a8571849
 +});
 diff --git a/src/hooks/useClaudeCodeModels.ts b/src/hooks/useClaudeCodeModels.ts
 new file mode 100644
-index 0000000000..104db0860f
+index 00000000..104db086
 --- /dev/null
 +++ b/src/hooks/useClaudeCodeModels.ts
 @@ -0,0 +1,41 @@
@@ -14188,7 +14188,7 @@ index 0000000000..104db0860f
 +  return { ...response, enabledList };
 +};
 diff --git a/src/libs/swr/keys.ts b/src/libs/swr/keys.ts
-index 44781106e3..434bfd2b74 100644
+index 9a1908c1..6de08200 100644
 --- a/src/libs/swr/keys.ts
 +++ b/src/libs/swr/keys.ts
 @@ -53,6 +53,10 @@ export const channelKeys = {
@@ -14203,7 +14203,7 @@ index 44781106e3..434bfd2b74 100644
  export interface MessageListQueryContext {
    agentId?: string | null;
 diff --git a/src/routes/(main)/agent/profile/features/ProfileEditor/WorkspaceAgentModelPolicy.tsx b/src/routes/(main)/agent/profile/features/ProfileEditor/WorkspaceAgentModelPolicy.tsx
-index 3becd8f4fa..c9787b7f35 100644
+index 3becd8f4..c9787b7f 100644
 --- a/src/routes/(main)/agent/profile/features/ProfileEditor/WorkspaceAgentModelPolicy.tsx
 +++ b/src/routes/(main)/agent/profile/features/ProfileEditor/WorkspaceAgentModelPolicy.tsx
 @@ -30,6 +30,7 @@ export const WorkspaceAgentModelPolicy = memo<WorkspaceAgentModelPolicyProps>(({
@@ -14215,7 +14215,7 @@ index 3becd8f4fa..c9787b7f35 100644
          value={{
            model: config.model,
 diff --git a/src/routes/(main)/agent/profile/features/ProfileEditor/index.tsx b/src/routes/(main)/agent/profile/features/ProfileEditor/index.tsx
-index 6454ce72d6..1248a1c93b 100644
+index 6454ce72..1248a1c9 100644
 --- a/src/routes/(main)/agent/profile/features/ProfileEditor/index.tsx
 +++ b/src/routes/(main)/agent/profile/features/ProfileEditor/index.tsx
 @@ -25,6 +25,8 @@ import { resolveServerDefaultAgentModels } from '@/features/HeterogeneousAgent/m
@@ -14297,7 +14297,7 @@ index 6454ce72d6..1248a1c93b 100644
                  </ModelSwitchPanel>
 diff --git a/src/services/claudeCode.ts b/src/services/claudeCode.ts
 new file mode 100644
-index 0000000000..ec481481bb
+index 00000000..ec481481
 --- /dev/null
 +++ b/src/services/claudeCode.ts
 @@ -0,0 +1,11 @@
@@ -14313,7 +14313,7 @@ index 0000000000..ec481481bb
 +
 +export const claudeCodeService = new ClaudeCodeService();
 diff --git a/src/store/aiInfra/slices/aiModel/selectors.test.ts b/src/store/aiInfra/slices/aiModel/selectors.test.ts
-index afe2f6ca55..22a2774ff9 100644
+index afe2f6ca..22a2774f 100644
 --- a/src/store/aiInfra/slices/aiModel/selectors.test.ts
 +++ b/src/store/aiInfra/slices/aiModel/selectors.test.ts
 @@ -207,6 +207,18 @@ describe('aiModelSelectors', () => {
@@ -14336,7 +14336,7 @@ index afe2f6ca55..22a2774ff9 100644
        expect(aiModelSelectors.isModelSupportToolUse('model1', 'provider1')(mockState)).toBe(true);
        expect(aiModelSelectors.isModelSupportToolUse('model4', 'provider2')(mockState)).toBe(false);
 diff --git a/src/store/aiInfra/slices/aiModel/selectors.ts b/src/store/aiInfra/slices/aiModel/selectors.ts
-index 81dc0b7818..7f696f73bd 100644
+index 81dc0b78..7f696f73 100644
 --- a/src/store/aiInfra/slices/aiModel/selectors.ts
 +++ b/src/store/aiInfra/slices/aiModel/selectors.ts
 @@ -68,18 +68,23 @@ const getEnabledModelById = (id: string, provider: string) => (s: AIProviderStor
@@ -14365,7 +14365,7 @@ index 81dc0b7818..7f696f73bd 100644
    return model?.abilities?.vision || false;
 diff --git a/src/store/chat/slices/agentRun/actions/__tests__/claudeCodeRouting.test.ts b/src/store/chat/slices/agentRun/actions/__tests__/claudeCodeRouting.test.ts
 new file mode 100644
-index 0000000000..8bb466bfe7
+index 00000000..8bb466bf
 --- /dev/null
 +++ b/src/store/chat/slices/agentRun/actions/__tests__/claudeCodeRouting.test.ts
 @@ -0,0 +1,103 @@
@@ -14473,7 +14473,7 @@ index 0000000000..8bb466bfe7
 +  });
 +});
 diff --git a/src/store/chat/slices/agentRun/actions/dispatch/agentDispatcher.ts b/src/store/chat/slices/agentRun/actions/dispatch/agentDispatcher.ts
-index 413a92a56e..19491d2eca 100644
+index 413a92a5..19491d2e 100644
 --- a/src/store/chat/slices/agentRun/actions/dispatch/agentDispatcher.ts
 +++ b/src/store/chat/slices/agentRun/actions/dispatch/agentDispatcher.ts
 @@ -4,7 +4,11 @@ import {
@@ -14521,7 +14521,7 @@ index 413a92a56e..19491d2eca 100644
      // with NO workspace header (see `providerBindingPort`), while a workspace
 diff --git a/src/store/chat/slices/agentRun/actions/dispatch/resolveAssistantTransport.test.ts b/src/store/chat/slices/agentRun/actions/dispatch/resolveAssistantTransport.test.ts
 new file mode 100644
-index 0000000000..da0a7150f0
+index 00000000..da0a7150
 --- /dev/null
 +++ b/src/store/chat/slices/agentRun/actions/dispatch/resolveAssistantTransport.test.ts
 @@ -0,0 +1,79 @@
@@ -14606,7 +14606,7 @@ index 0000000000..da0a7150f0
 +});
 diff --git a/src/store/chat/slices/agentRun/actions/dispatch/resolveAssistantTransport.ts b/src/store/chat/slices/agentRun/actions/dispatch/resolveAssistantTransport.ts
 new file mode 100644
-index 0000000000..dae8e6ac78
+index 00000000..dae8e6ac
 --- /dev/null
 +++ b/src/store/chat/slices/agentRun/actions/dispatch/resolveAssistantTransport.ts
 @@ -0,0 +1,32 @@
@@ -14643,60 +14643,18 @@ index 0000000000..dae8e6ac78
 +  return { heterogeneousProvider, runtimeBackend };
 +};
 diff --git a/src/store/chat/slices/agentRun/actions/entries/conversationControl.ts b/src/store/chat/slices/agentRun/actions/entries/conversationControl.ts
-index 84ecded66e..73dff01305 100644
+index daf66097..7bc6092f 100644
 --- a/src/store/chat/slices/agentRun/actions/entries/conversationControl.ts
 +++ b/src/store/chat/slices/agentRun/actions/entries/conversationControl.ts
-@@ -1,6 +1,6 @@
- // Disable the auto sort key eslint rule to make the code more logic and readable
- import { type AgentRuntimeContext } from '@lobechat/agent-runtime';
--import { isHeterogeneousAgentModelId, MESSAGE_CANCEL_FLAT } from '@lobechat/const';
-+import { MESSAGE_CANCEL_FLAT } from '@lobechat/const';
- import {
-   type ChatTopicStatus,
-   type ConversationContext,
-@@ -35,6 +35,7 @@ import {
-   type AgentRuntimeType,
-   selectRuntimeType,
- } from '@/store/chat/slices/agentRun/actions/dispatch/agentDispatcher';
-+import { resolveAssistantTransport } from '@/store/chat/slices/agentRun/actions/dispatch/resolveAssistantTransport';
- import { type OptimisticUpdateContext } from '@/store/chat/slices/message/actions/optimisticUpdate';
- import { dbMessageSelectors } from '@/store/chat/slices/message/selectors';
- import { operationSelectors } from '@/store/chat/slices/operation/selectors';
-@@ -50,6 +51,7 @@ import { userProfileSelectors } from '@/store/user/selectors';
- import { buildRunLifecycle } from '../lifecycle/buildRunLifecycle';
- import { type RunScope } from '../lifecycle/types';
- import { readClientRunMessages } from './ensureFullHistoryForClientRun';
+@@ -36,6 +36,7 @@ import {
+   shouldUseConfiguredGatewayResume as resolveConfiguredGatewayResume,
+   shouldUseGatewayResume as resolveGatewayResume,
+ } from './gatewayResume';
 +import { resolveHeteroInterventionExecutionOperation } from './heteroInterventionOperation';
  import { createInterventionProjection } from './interventionProjection';
  
  /**
-@@ -291,17 +293,19 @@ export class ConversationControlActionImpl {
-       getElectronStoreState().gatewayDeviceInfo?.deviceId,
-     );
-     const isGatewayMode = this.#get().isGatewayModeEnabled(agentId);
--    const heterogeneousProvider =
--      agencyConfig?.heterogeneousProvider ??
--      (!isGatewayMode && isHeterogeneousAgentModelId(agentConfig?.model)
--        ? { type: agentConfig.model }
--        : undefined);
-+    const transport = resolveAssistantTransport(
-+      agentConfig,
-+      isGatewayMode,
-+      agencyConfig?.heterogeneousProvider,
-+      context.topicId ? topicSelectors.getTopicById(context.topicId)(this.#get()) : undefined,
-+      agentId,
-+    );
- 
-     return (
-       selectRuntimeType({
-         boundDeviceId: agencyConfig?.boundDeviceId,
-         executionTarget: agencyConfig?.executionTarget,
--        heterogeneousProvider,
-+        ...transport,
-         isGatewayMode,
-         isWorkspaceAgent: !!agent?.workspaceId,
-         workspaceScoped,
-@@ -350,36 +354,6 @@ export class ConversationControlActionImpl {
+@@ -253,36 +254,6 @@ export class ConversationControlActionImpl {
      return !!status && status !== 'disconnected';
    };
  
@@ -14733,7 +14691,7 @@ index 84ecded66e..73dff01305 100644
    /**
     * Local tool-interaction resumes are continuations of the original request.
     * Preserve the request trigger so downstream chat requests keep the same
-@@ -1795,6 +1769,9 @@ export class ConversationControlActionImpl {
+@@ -1692,6 +1663,9 @@ export class ConversationControlActionImpl {
      // provenance for local desktop IPC / legacy fallback, never server auth.
      const { messageOperationMap } = this.#get();
      const candidateOperationId =
@@ -14743,7 +14701,7 @@ index 84ecded66e..73dff01305 100644
        (toolMessage.parentId && messageOperationMap?.[toolMessage.parentId]) ??
        messageOperationMap?.[toolMessageId];
  
-@@ -1809,8 +1786,10 @@ export class ConversationControlActionImpl {
+@@ -1706,8 +1680,10 @@ export class ConversationControlActionImpl {
      // Resolve the runtime execution op before choosing IPC vs remote transport.
      // For local CC this is `execHeterogeneousAgent`; for gateway/device runs
      // this is `execServerAgentRuntime`.
@@ -14757,7 +14715,7 @@ index 84ecded66e..73dff01305 100644
      // A cold/GC'd run still uses the card's captured context, never the active tab.
      const operationAlive = !!operation;
 diff --git a/src/store/chat/slices/agentRun/actions/entries/conversationLifecycle/index.ts b/src/store/chat/slices/agentRun/actions/entries/conversationLifecycle/index.ts
-index 31e7022808..2b61434ec5 100644
+index 87ff7d59..23a868e0 100644
 --- a/src/store/chat/slices/agentRun/actions/entries/conversationLifecycle/index.ts
 +++ b/src/store/chat/slices/agentRun/actions/entries/conversationLifecycle/index.ts
 @@ -1,7 +1,7 @@
@@ -14808,9 +14766,52 @@ index 31e7022808..2b61434ec5 100644
        workspaceScoped,
      });
  
+diff --git a/src/store/chat/slices/agentRun/actions/entries/gatewayResume.ts b/src/store/chat/slices/agentRun/actions/entries/gatewayResume.ts
+index f02e8ca5..90795ad4 100644
+--- a/src/store/chat/slices/agentRun/actions/entries/gatewayResume.ts
++++ b/src/store/chat/slices/agentRun/actions/entries/gatewayResume.ts
+@@ -1,4 +1,3 @@
+-import { isHeterogeneousAgentModelId } from '@lobechat/const';
+ import { type ConversationContext, resolveAgentAgencyConfig } from '@lobechat/types';
+ 
+ import {
+@@ -20,6 +19,7 @@ import { useUserStore } from '@/store/user';
+ import { userProfileSelectors } from '@/store/user/selectors';
+ 
+ import { selectRuntimeType } from '../dispatch/agentDispatcher';
++import { resolveAssistantTransport } from '../dispatch/resolveAssistantTransport';
+ 
+ /** A persisted server source survives reloads and changes to the agent's execution target. */
+ export const shouldUseGatewayResume = async (
+@@ -93,17 +93,19 @@ export const shouldUseConfiguredGatewayResume = async (
+     getElectronStoreState().gatewayDeviceInfo?.deviceId,
+   );
+   const isGatewayMode = get().isGatewayModeEnabled(agentId);
+-  const heterogeneousProvider =
+-    agencyConfig?.heterogeneousProvider ??
+-    (!isGatewayMode && isHeterogeneousAgentModelId(agentConfig?.model)
+-      ? { type: agentConfig.model }
+-      : undefined);
++  const transport = resolveAssistantTransport(
++    agentConfig,
++    isGatewayMode,
++    agencyConfig?.heterogeneousProvider,
++    context.topicId ? topicSelectors.getTopicById(context.topicId)(get()) : undefined,
++    agentId,
++  );
+ 
+   return (
+     selectRuntimeType({
+       boundDeviceId: agencyConfig?.boundDeviceId,
+       executionTarget: agencyConfig?.executionTarget,
+-      heterogeneousProvider,
++      ...transport,
+       isGatewayMode,
+       isWorkspaceAgent: !!agent?.workspaceId,
+       workspaceScoped,
 diff --git a/src/store/chat/slices/agentRun/actions/entries/heteroInterventionOperation.test.ts b/src/store/chat/slices/agentRun/actions/entries/heteroInterventionOperation.test.ts
 new file mode 100644
-index 0000000000..cff575e1b8
+index 00000000..cff575e1
 --- /dev/null
 +++ b/src/store/chat/slices/agentRun/actions/entries/heteroInterventionOperation.test.ts
 @@ -0,0 +1,26 @@
@@ -14842,7 +14843,7 @@ index 0000000000..cff575e1b8
 +});
 diff --git a/src/store/chat/slices/agentRun/actions/entries/heteroInterventionOperation.ts b/src/store/chat/slices/agentRun/actions/entries/heteroInterventionOperation.ts
 new file mode 100644
-index 0000000000..46159da886
+index 00000000..46159da8
 --- /dev/null
 +++ b/src/store/chat/slices/agentRun/actions/entries/heteroInterventionOperation.ts
 @@ -0,0 +1,26 @@
