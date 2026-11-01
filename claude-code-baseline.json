@@ -4,12 +4,12 @@
   "productionImage": "ghcr.io/wzyu26/lobehub-canary-qq@sha256:918f63749064c51b062ba544ca410c88acfc11282f43091cff6423654d642aaa",
   "productionQqPatch": "18187-8d48bcdbd746aa036f0fde9f1ba934cc8ac26a14",
   "localQqBaseline": "edfe0138f7abf04aafef2b26d517aaa3e4850228",
-  "sourceRevision": "69ee214f2968b4d36a0f05155054fcd575e10b65",
-  "patchSha256": "eae0cc5605dd71fc60c38a8128c3bc00e262870070b0676e45a3ad396aada97c",
+  "sourceRevision": "5b21cdac7145363679f9a8f9798ca161d0baee38",
+  "patchSha256": "fd5f4592e056556ca9826ae815e5c217c0b600df4a0a57f628d61d9524e3b8bc",
   "officialClaudeCode": "2.1.301",
   "featureFlag": "CLAUDE_CODE_SERVER_ENABLED",
   "defaultEnabled": false,
-  "verifiedAt": "2026-10-31",
+  "verifiedAt": "2026-11-01",
   "server": {
     "cpu": 4,
     "memoryMiB": 7947
