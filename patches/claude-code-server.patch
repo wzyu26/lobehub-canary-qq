@@ -1954,10 +1954,10 @@ index 00000000..a35c8b76
 +};
 diff --git a/apps/claude-code-worker/src/runner.test.ts b/apps/claude-code-worker/src/runner.test.ts
 new file mode 100644
-index 00000000..c1422783
+index 00000000..68a32bf4
 --- /dev/null
 +++ b/apps/claude-code-worker/src/runner.test.ts
-@@ -0,0 +1,294 @@
+@@ -0,0 +1,296 @@
 +import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 +import os from 'node:os';
 +import path from 'node:path';
@@ -2083,6 +2083,8 @@ index 00000000..c1422783
 +      spawn,
 +    });
 +    expect(spawn).toHaveBeenCalledTimes(1);
++    // A tool with an unusable schema is left out instead of interrupting the run.
++    expect(harness.operation().onInvalidTool).toEqual(expect.any(Function));
 +    const spawned = spawn.mock.calls[0][0];
 +    expect(spawned.extraArgs).toContain('--append-system-prompt-file');
 +    expect(spawned.extraArgs).not.toContain(claim.request.systemPrompt);
@@ -2254,10 +2256,10 @@ index 00000000..c1422783
 +});
 diff --git a/apps/claude-code-worker/src/runner.ts b/apps/claude-code-worker/src/runner.ts
 new file mode 100644
-index 00000000..b804f4ba
+index 00000000..7c111c4e
 --- /dev/null
 +++ b/apps/claude-code-worker/src/runner.ts
-@@ -0,0 +1,228 @@
+@@ -0,0 +1,240 @@
 +import { randomUUID } from 'node:crypto';
 +import { mkdir, rm, writeFile } from 'node:fs/promises';
 +import path from 'node:path';
@@ -2412,6 +2414,13 @@ index 00000000..b804f4ba
 +        inputSchema: tool.inputSchema,
 +        name: tool.name,
 +      })),
++      // One plugin's unusable schema must not cost the whole turn; the model
++      // simply does not see that tool, and the server still validates calls.
++      onInvalidTool: (name, error) =>
++        console.error(
++          `Claude Code tool left out of this run: ${name}:`,
++          error instanceof Error ? error.message : 'invalid schema',
++        ),
 +    });
 +    const extraArgs = [
 +      '--mcp-config',
@@ -2461,8 +2470,13 @@ index 00000000..b804f4ba
 +              error: 'Claude Code execution failed; check login and worker availability',
 +              status: 'error',
 +            };
-+  } catch {
-+    // Do not replay the prompt after any spawn/stream/disk failure.
++  } catch (error) {
++    // Do not replay the prompt after any spawn/stream/disk failure. Log only
++    // the error message (never stderr, prompt or tool arguments).
++    console.error(
++      'Claude Code run stopped before completion:',
++      error instanceof Error ? error.message : 'unknown error',
++    );
 +    lease.stop('interrupted');
 +    if (handle) await handle.exit;
 +    finish = {
@@ -11965,10 +11979,10 @@ index 9dd350ac..9cd0571a 100644
  export * from './device';
 diff --git a/packages/heterogeneous-agents/src/builtinMcp/LobeBuiltinMcpServer.operationTools.test.ts b/packages/heterogeneous-agents/src/builtinMcp/LobeBuiltinMcpServer.operationTools.test.ts
 new file mode 100644
-index 00000000..3b0b6d7a
+index 00000000..c6c47539
 --- /dev/null
 +++ b/packages/heterogeneous-agents/src/builtinMcp/LobeBuiltinMcpServer.operationTools.test.ts
-@@ -0,0 +1,366 @@
+@@ -0,0 +1,422 @@
 +import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 +import { afterEach, describe, expect, it, vi } from 'vitest';
 +import { z } from 'zod';
@@ -12228,19 +12242,75 @@ index 00000000..3b0b6d7a
 +    expect(handler).toHaveBeenCalledTimes(1);
 +  });
 +
-+  it('fails registration for unsupported schemas instead of dropping their constraints', () => {
++  it('accepts loosely authored third-party schemas and still enforces their constraints', async () => {
++    const handler = vi.fn(async () => ({ content: [{ text: 'found', type: 'text' as const }] }));
 +    server = new LobeBuiltinMcpServer();
-+    expect(() =>
-+      server.registerOperation('run', undefined, {
-+        tools: [
-+          {
-+            ...echoTool('write'),
-+            inputSchema: { type: 'object', unsupportedConstraint: true },
++    await server.start();
++    server.registerOperation('run', undefined, {
++      tools: [
++        {
++          description: 'Search places',
++          handler,
++          // Typical plugin schema: vendor annotation, nested `properties`
++          // without `type`, and `required` naming an undeclared field.
++          inputSchema: {
++            properties: {
++              location: { properties: { lat: { type: 'number' } }, required: ['lat'] },
++              query: { 'minLength': 1, 'type': 'string', 'x-display': 'text' },
++            },
++            required: ['query', 'language'],
++            type: 'object',
 +          },
-+        ],
-+      }),
-+    ).toThrow(/unknown keyword|unsupportedConstraint/);
++          name: 'maps_search_places',
++        },
++      ],
++    });
++    const { client } = await connect('run');
++
++    for (const args of [
++      { language: 'en', query: '' },
++      { language: 'en', location: { lat: 'north' }, query: 'cafe' },
++      { query: 'cafe' },
++    ]) {
++      const result = await client.callTool({
++        _meta: { 'claudecode/toolUseId': 'toolu_invalid' },
++        arguments: args,
++        name: 'maps_search_places',
++      });
++      expect(result.isError).toBe(true);
++    }
++    expect(handler).not.toHaveBeenCalled();
++
++    const result = await client.callTool({
++      _meta: { 'claudecode/toolUseId': 'toolu_valid' },
++      arguments: { language: 'en', location: { lat: 1 }, query: 'cafe' },
++      name: 'maps_search_places',
++    });
++    expect(result.isError).toBeFalsy();
++    expect(handler).toHaveBeenCalledTimes(1);
++  });
++
++  it('fails registration for an uncompilable schema unless the caller skips invalid tools', async () => {
++    const broken: McpOperationTool = {
++      ...echoTool('broken'),
++      inputSchema: { properties: { value: { $ref: '#/$defs/missing' } }, type: 'object' },
++    };
++    server = new LobeBuiltinMcpServer();
++    expect(() => server.registerOperation('run', undefined, { tools: [broken] })).toThrow(
++      /missing/,
++    );
 +    expect(server.hasOperation('run')).toBe(false);
++
++    await server.start();
++    const onInvalidTool = vi.fn();
++    server.registerOperation('run', undefined, {
++      onInvalidTool,
++      tools: [broken, echoTool('echo')],
++    });
++    expect(onInvalidTool).toHaveBeenCalledWith('broken', expect.any(Error));
++    const { client } = await connect('run');
++    const { tools } = await client.listTools();
++    expect(tools.map((tool) => tool.name)).toEqual([ASK_USER_TOOL_NAME, 'echo']);
 +  });
 +
 +  it('freezes schemas at operation registration and allows an explicitly empty tool set', async () => {
@@ -12412,7 +12482,7 @@ index 1ee679d1..c20f88bd 100644
      }
 +    const includeAskUser = options.includeAskUser ?? true;
 +    const tools = options.tools
-+      ? prepareMcpOperationTools(options.tools, includeAskUser)
++      ? prepareMcpOperationTools(options.tools, includeAskUser, options.onInvalidTool)
 +      : undefined;
      const created = bridge ?? new AskUserBridge(operationId);
 -    this.operations.set(operationId, { bridge: created });
@@ -12605,10 +12675,10 @@ index 21af3dbd..d4e38a62 100644
 +} from './operationTools';
 diff --git a/packages/heterogeneous-agents/src/builtinMcp/operationTools.ts b/packages/heterogeneous-agents/src/builtinMcp/operationTools.ts
 new file mode 100644
-index 00000000..7c23180b
+index 00000000..6480c508
 --- /dev/null
 +++ b/packages/heterogeneous-agents/src/builtinMcp/operationTools.ts
-@@ -0,0 +1,75 @@
+@@ -0,0 +1,94 @@
 +import { fromJsonSchema } from '@modelcontextprotocol/server';
 +import {
 +  addFormats,
@@ -12641,6 +12711,11 @@ index 00000000..7c23180b
 +  /** Defaults to true. The shared question bridge remains available when enabled. */
 +  includeAskUser?: boolean;
 +  /**
++   * When supplied, a tool whose name or schema cannot be registered is left out
++   * of this operation and reported here; without it, registration fails.
++   */
++  onInvalidTool?: (name: string, error: unknown) => void;
++  /**
 +   * The complete tool set allowed for this operation. When supplied (even []),
 +   * replaces process-wide extraTools instead of adding to them.
 +   */
@@ -12653,36 +12728,50 @@ index 00000000..7c23180b
 +
 +/**
 + * Preserve the existing JSON Schema without translating away constraints.
-+ * Compile before registering an operation: unsupported keywords/refs fail
-+ * closed instead of quietly exposing a tool with weaker argument validation.
++ * Every standard keyword still validates. Ajv's strict mode is only an
++ * authoring lint (unknown annotations such as `x-*`, `properties` without
++ * `type`, `required` naming an undeclared field) that ordinary third-party
++ * MCP and plugin schemas routinely trip, so it is off, matching the server's
++ * authoritative argument check. A schema Ajv cannot compile at all still fails.
 + */
 +export const prepareMcpOperationTools = (
 +  tools: readonly McpOperationTool[],
 +  includeAskUser: boolean,
++  onInvalidTool?: (name: string, error: unknown) => void,
 +): PreparedMcpOperationTool[] => {
 +  const names = new Set(includeAskUser ? [ASK_USER_TOOL_NAME] : []);
++  const prepared: PreparedMcpOperationTool[] = [];
 +
-+  return tools.map((tool) => {
-+    if (!/^[\w.-]{1,128}$/.test(tool.name) || names.has(tool.name)) {
-+      throw new Error(`Invalid or duplicate MCP operation tool name: ${tool.name}`);
++  for (const tool of tools) {
++    try {
++      if (!/^[\w.-]{1,128}$/.test(tool.name) || names.has(tool.name)) {
++        throw new Error(`Invalid or duplicate MCP operation tool name: ${tool.name}`);
++      }
++
++      // Snapshot caller-owned schemas so changing the next turn's allowlist
++      // cannot mutate an already registered operation's input contract.
++      const schema = structuredClone(tool.inputSchema);
++      if (schema.type !== 'object') {
++        throw new Error(`MCP operation tool ${tool.name} requires an object input schema`);
++      }
++
++      const ajv = new Ajv({ allErrors: true, allowUnionTypes: true, strict: false });
++      addFormats(ajv);
++      ajv.compile(schema);
++      names.add(tool.name);
++      prepared.push({
++        ...tool,
++        inputSchema: fromJsonSchema<Record<string, unknown>>(
++          schema,
++          new AjvJsonSchemaValidator(ajv),
++        ),
++      });
++    } catch (error) {
++      if (!onInvalidTool) throw error;
++      onInvalidTool(tool.name, error);
 +    }
-+    names.add(tool.name);
-+
-+    // Snapshot caller-owned schemas so changing the next turn's allowlist
-+    // cannot mutate an already registered operation's input contract.
-+    const schema = structuredClone(tool.inputSchema);
-+    if (schema.type !== 'object') {
-+      throw new Error(`MCP operation tool ${tool.name} requires an object input schema`);
-+    }
-+
-+    const ajv = new Ajv({ allErrors: true, allowUnionTypes: true, strict: true });
-+    addFormats(ajv);
-+    ajv.compile(schema);
-+    return {
-+      ...tool,
-+      inputSchema: fromJsonSchema<Record<string, unknown>>(schema, new AjvJsonSchemaValidator(ajv)),
-+    };
-+  });
++  }
++  return prepared;
 +};
 diff --git a/packages/heterogeneous-agents/src/protocol/index.ts b/packages/heterogeneous-agents/src/protocol/index.ts
 index b83421d7..b76a5f7d 100644
