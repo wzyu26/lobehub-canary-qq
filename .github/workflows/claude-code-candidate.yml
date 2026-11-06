@@ -96,7 +96,8 @@ jobs:
       - name: Type check and server integration checks
         working-directory: source
         run: |
-          pnpm exec tsgo --noEmit -p tsconfig.type-check.json
+          # Upstream owns the checker choice (it replaced tsgo with tsrs).
+          pnpm run type-check
           pnpm exec vitest run apps/server/src/services/claudeCode apps/server/src/router-hono/claude-code apps/server/src/globalConfig/__tests__/claudeCodeCatalog.integration.test.ts apps/server/src/services/agentRuntime/__tests__/StaleOperationReaper.test.ts apps/server/src/services/agentRuntime/AgentRuntimeService/__tests__/interrupt.test.ts
       - name: Ordinary assistant routing and model entry
         working-directory: source
