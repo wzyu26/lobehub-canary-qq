@@ -1707,7 +1707,7 @@ new file mode 100644
 index 00000000..a35c8b76
 --- /dev/null
 +++ b/apps/claude-code-worker/src/outbox.ts
-@@ -0,0 +1,244 @@
+@@ -0,0 +1,249 @@
 +import { createHash, randomUUID } from 'node:crypto';
 +import { mkdir, open, readdir, readFile, rename, rm } from 'node:fs/promises';
 +import path from 'node:path';
@@ -1938,7 +1938,12 @@ index 00000000..a35c8b76
 +export const recoverRuns = async (root: string, api: WorkerApi, signal?: AbortSignal) => {
 +  for (const box of await RunOutbox.recover(root)) {
 +    if (!box.record.finish || box.record.finish.status === 'completed') {
-+      await box.setFinish({ error: 'Worker restarted during execution', status: 'interrupted' });
++      // Also reached when the previous cycle's run threw without finishing, so
++      // this is not proof that the process restarted.
++      await box.setFinish({
++        error: 'Claude Code run stopped unexpectedly (worker error or restart)',
++        status: 'interrupted',
++      });
 +    }
 +    try {
 +      await box.finish(api, signal);
@@ -2587,7 +2592,7 @@ new file mode 100644
 index 00000000..fcfad3e4
 --- /dev/null
 +++ b/apps/claude-code-worker/src/service.ts
-@@ -0,0 +1,83 @@
+@@ -0,0 +1,87 @@
 +import { mkdir } from 'node:fs/promises';
 +import { setTimeout as delay } from 'node:timers/promises';
 +
@@ -2655,10 +2660,14 @@ index 00000000..fcfad3e4
 +          const claim = await api.post<ClaudeCodeWorkerClaim | null>('/claim', {}, signal);
 +          if (claim) await runOperation(claim, { api, config, mcp, signal });
 +        }
-+      } catch {
-+        // Keep diagnostics free of prompts, account identifiers and credentials.
++      } catch (error) {
++        // Keep diagnostics free of prompts, account identifiers and credentials:
++        // only the error type and a bounded message.
 +        if (!signal.aborted)
-+          console.error('Worker cycle failed; queued work and local receipts are retained');
++          console.error(
++            'Worker cycle failed; queued work and local receipts are retained:',
++            error instanceof Error ? `${error.name}: ${error.message.slice(0, 200)}` : typeof error,
++          );
 +      }
 +      try {
 +        await delay(config.pollIntervalMs, undefined, { signal });
