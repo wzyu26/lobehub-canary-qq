@@ -3892,17 +3892,17 @@ index 00000000..984673f2
 +  })
 +  .strict();
 diff --git a/apps/server/src/router-hono/index.ts b/apps/server/src/router-hono/index.ts
-index 3f123619..ebeb76a4 100644
+index 53f06604..b261b093 100644
 --- a/apps/server/src/router-hono/index.ts
 +++ b/apps/server/src/router-hono/index.ts
-@@ -21,6 +21,7 @@ app.get('/health', (c) =>
+@@ -22,6 +22,7 @@ app.get('/health', (c) =>
  
  app.all('/api/agent', (c) => fetchWith(c, () => import('./agent')));
  app.all('/api/agent/*', (c) => fetchWith(c, () => import('./agent')));
 +app.all('/api/claude-code/worker/*', (c) => fetchWith(c, () => import('./claude-code')));
  app.all('/api/acceptance-review/*', (c) => acceptanceReview.fetch(c.req.raw));
+ app.all('/api/device/managed/*', (c) => device.fetch(c.req.raw));
  app.all('/api/workflows', (c) => fetchWith(c, () => import('./workflows')));
- app.all('/api/workflows/*', (c) => fetchWith(c, () => import('./workflows')));
 diff --git a/apps/server/src/routers/lambda/aiAgent/hetero.ts b/apps/server/src/routers/lambda/aiAgent/hetero.ts
 index 90798889..6459e84f 100644
 --- a/apps/server/src/routers/lambda/aiAgent/hetero.ts
@@ -4004,10 +4004,10 @@ index 00000000..07ee7272
 +  ),
 +});
 diff --git a/apps/server/src/routers/lambda/index.ts b/apps/server/src/routers/lambda/index.ts
-index f9ef80cf..bfff5f9a 100644
+index 8719034e..592ff15c 100644
 --- a/apps/server/src/routers/lambda/index.ts
 +++ b/apps/server/src/routers/lambda/index.ts
-@@ -51,6 +51,7 @@ import { canvasRouter } from './canvas';
+@@ -52,6 +52,7 @@ import { canvasRouter } from './canvas';
  import { changelogRouter } from './changelog';
  import { channelRouter } from './channel';
  import { chunkRouter } from './chunk';
@@ -4015,8 +4015,8 @@ index f9ef80cf..bfff5f9a 100644
  import { comfyuiRouter } from './comfyui';
  import { composioRouter } from './composio';
  import { configRouter } from './config';
-@@ -156,6 +157,7 @@ export const lambdaRouter = router({
-   asr: asrRouter,
+@@ -159,6 +160,7 @@ export const lambdaRouter = router({
+   auth: authRouter,
    tts: ttsRouter,
    chunk: chunkRouter,
 +  claudeCode: claudeCodeRouter,
@@ -4050,12 +4050,12 @@ index 5f28bf2b..36c124a2 100644
          ? deriveAgentInterventionQueueDeduplicationId(operationId, initialStepCount)
          : undefined;
 diff --git a/apps/server/src/services/agentRuntime/AgentRuntimeService/executeStep/index.ts b/apps/server/src/services/agentRuntime/AgentRuntimeService/executeStep/index.ts
-index 29924f6e..ef5feef2 100644
+index a2774217..74e02cb4 100644
 --- a/apps/server/src/services/agentRuntime/AgentRuntimeService/executeStep/index.ts
 +++ b/apps/server/src/services/agentRuntime/AgentRuntimeService/executeStep/index.ts
-@@ -149,6 +149,10 @@ export async function executeStep(
-         throw new Error(`Agent state not found for operation ${operationId}`);
+@@ -152,6 +152,10 @@ export async function executeStep(
        }
+       stopRunSlotLease = startRunSlotLease(deps.userId, agentState);
  
 +      if (agentState.host?.runtimeBackend === 'claude-code') {
 +        return { nextStepScheduled: false, state: agentState, success: true };
@@ -4289,10 +4289,10 @@ index 00000000..a2e24d8f
 +  });
 +});
 diff --git a/apps/server/src/services/agentRuntime/CompletionLifecycle/index.ts b/apps/server/src/services/agentRuntime/CompletionLifecycle/index.ts
-index bac36b01..8b1855e4 100644
+index 4f1a88a6..5d6a10e0 100644
 --- a/apps/server/src/services/agentRuntime/CompletionLifecycle/index.ts
 +++ b/apps/server/src/services/agentRuntime/CompletionLifecycle/index.ts
-@@ -83,6 +83,7 @@ export class CompletionLifecycle {
+@@ -86,6 +86,7 @@ export class CompletionLifecycle {
    private readonly messageModel: MessageModel;
    private readonly agentOperationModel: AgentOperationModel;
    private readonly workspaceId?: string;
@@ -4300,7 +4300,7 @@ index bac36b01..8b1855e4 100644
    /**
     * In-flight verify-plan instantiations started in {@link recordStart}, keyed by
     * operationId. `dispatchHooks` awaits the matching one before running the
-@@ -97,6 +98,8 @@ export class CompletionLifecycle {
+@@ -100,6 +101,8 @@ export class CompletionLifecycle {
      private readonly userId: string,
      workspaceId?: string,
      options?: {
@@ -4309,7 +4309,7 @@ index bac36b01..8b1855e4 100644
        /**
         * Opt IN to agent-share visitor rows on this service's `messageModel`.
         * Reserved for share-runtime callers driving a visitor turn under the
-@@ -107,6 +110,7 @@ export class CompletionLifecycle {
+@@ -110,6 +113,7 @@ export class CompletionLifecycle {
        onTopicRunSettled?: TopicRunSettledHandler;
      },
    ) {
@@ -4317,7 +4317,7 @@ index bac36b01..8b1855e4 100644
      this.workspaceId = workspaceId;
      this.includeShareVisitor = options?.includeShareVisitor ?? false;
      this.onTopicRunSettled = options?.onTopicRunSettled;
-@@ -122,12 +126,20 @@ export class CompletionLifecycle {
+@@ -125,12 +129,20 @@ export class CompletionLifecycle {
     * The instance state the extracted completion steps read. Built per call so
     * the steps always see the current models.
     */
@@ -4342,7 +4342,7 @@ index bac36b01..8b1855e4 100644
        userId: this.userId,
        workspaceId: this.workspaceId,
      };
-@@ -164,7 +176,7 @@ export class CompletionLifecycle {
+@@ -167,7 +179,7 @@ export class CompletionLifecycle {
        this.verifyPlanInstantiations.set(
          params.operationId,
          instantiateVerifyPlanOnStart(
@@ -4351,7 +4351,7 @@ index bac36b01..8b1855e4 100644
            this.userId,
            { operationId: params.operationId, taskId: params.taskId },
            this.workspaceId,
-@@ -469,7 +481,7 @@ export class CompletionLifecycle {
+@@ -490,7 +502,7 @@ export class CompletionLifecycle {
          // the host as post-response work instead (no-op fallback off Next).
          after(() =>
            runVerifyOnCompletion(
@@ -4360,16 +4360,21 @@ index bac36b01..8b1855e4 100644
              runOrigin.userId || this.userId,
              {
                deliverable: event.lastAssistantContent ?? '',
-@@ -484,7 +496,7 @@ export class CompletionLifecycle {
+@@ -505,11 +517,11 @@ export class CompletionLifecycle {
        if (reason === 'error' || reason === 'interrupted') {
          after(async () => {
-           await settleFailedRepair(
--            this.serverDB,
-+            this.backgroundDB,
-             runOrigin.userId || this.userId,
-             operationId,
-             this.workspaceId,
-@@ -577,7 +589,7 @@ export class CompletionLifecycle {
+           const userId = runOrigin.userId || this.userId;
+-          await settleFailedRepair(this.serverDB, userId, operationId, this.workspaceId);
++          await settleFailedRepair(this.backgroundDB, userId, operationId, this.workspaceId);
+           // A task run that failed before delivering leaves the round opened at
+           // its start with nothing to verify. When planning is still under way,
+           // `instantiateVerifyPlanOnStart` releases the round once it lands.
+-          await releaseUndeliveredRound(this.serverDB, userId, operationId, this.workspaceId);
++          await releaseUndeliveredRound(this.backgroundDB, userId, operationId, this.workspaceId);
+         });
+       }
+ 
+@@ -598,7 +610,7 @@ export class CompletionLifecycle {
      event: { agentId?: string; duration?: number; lastAssistantContent?: string; topicId?: string },
      runOrigin: { trigger?: unknown; userId?: string } | undefined,
    ): Promise<void> {
@@ -4379,10 +4384,10 @@ index bac36b01..8b1855e4 100644
  
    private async recoverLastAssistantContent(
 diff --git a/apps/server/src/services/agentRuntime/StaleOperationReaper.ts b/apps/server/src/services/agentRuntime/StaleOperationReaper.ts
-index 7c983353..9bd22efa 100644
+index 93cb9029..e66de622 100644
 --- a/apps/server/src/services/agentRuntime/StaleOperationReaper.ts
 +++ b/apps/server/src/services/agentRuntime/StaleOperationReaper.ts
-@@ -248,6 +248,7 @@ export class StaleOperationReaper {
+@@ -258,6 +258,7 @@ export class StaleOperationReaper {
          // the coordinator state, and the abandon path re-reads the row itself.
          .select({
            id: agentOperations.id,
@@ -4390,7 +4395,7 @@ index 7c983353..9bd22efa 100644
            provider: agentOperations.provider,
            updatedAt: agentOperations.updatedAt,
            userId: agentOperations.userId,
-@@ -276,6 +277,7 @@ export class StaleOperationReaper {
+@@ -286,6 +287,7 @@ export class StaleOperationReaper {
    private async recover(
      candidate: {
        id: string;
@@ -4398,7 +4403,7 @@ index 7c983353..9bd22efa 100644
        provider: string | null;
        updatedAt: Date;
        userId: string;
-@@ -285,6 +287,9 @@ export class StaleOperationReaper {
+@@ -295,6 +297,9 @@ export class StaleOperationReaper {
      heteroStaleBefore: Date,
      maxRedriveAttempts: number,
    ): Promise<'abandoned' | 'alive' | 'redriven' | 'skipped'> {
@@ -4409,7 +4414,7 @@ index 7c983353..9bd22efa 100644
      const operationModel = new AgentOperationModel(
        this.db,
 diff --git a/apps/server/src/services/agentRuntime/__tests__/StaleOperationReaper.test.ts b/apps/server/src/services/agentRuntime/__tests__/StaleOperationReaper.test.ts
-index a2251885..0b31980b 100644
+index 8349ee44..42c7d64f 100644
 --- a/apps/server/src/services/agentRuntime/__tests__/StaleOperationReaper.test.ts
 +++ b/apps/server/src/services/agentRuntime/__tests__/StaleOperationReaper.test.ts
 @@ -70,6 +70,23 @@ const buildCoordinator = (
@@ -4498,10 +4503,10 @@ index 316492b9..d76b6a91 100644
      return { canUseDevice: true, reason: 'first-party' };
    }
 diff --git a/apps/server/src/services/aiAgent/index.ts b/apps/server/src/services/aiAgent/index.ts
-index b057dc08..46f09131 100644
+index f9273673..40ed989c 100644
 --- a/apps/server/src/services/aiAgent/index.ts
 +++ b/apps/server/src/services/aiAgent/index.ts
-@@ -650,6 +650,7 @@ export class AiAgentService {
+@@ -665,6 +665,7 @@ export class AiAgentService {
     * AgentRuntimeService.
     */
    runDeferredInit = async (params: {
@@ -4586,7 +4591,7 @@ index d30a41c3..583cff1c 100644
    const { discovery, initialContext, prep } = await runOperationInit(
      {
 diff --git a/apps/server/src/services/aiAgent/pipeline/execTurn.ts b/apps/server/src/services/aiAgent/pipeline/execTurn.ts
-index ee13b5b2..6f5d97e3 100644
+index 935b37ba..0c7b2220 100644
 --- a/apps/server/src/services/aiAgent/pipeline/execTurn.ts
 +++ b/apps/server/src/services/aiAgent/pipeline/execTurn.ts
 @@ -20,6 +20,10 @@ import type { AgentConfigWithId } from '@/server/services/agent';
@@ -4600,16 +4605,16 @@ index ee13b5b2..6f5d97e3 100644
  import type { ComposioService } from '@/server/services/composio';
  import { DocumentService } from '@/server/services/document';
  import type { MarketService } from '@/server/services/market';
-@@ -284,6 +288,8 @@ export const execAgentTurn = async (
-   // flags, tools engine, context snapshot) reads it.
-   if (shareGate) applyShareGateToAgentConfig(agentConfig);
+@@ -298,6 +302,8 @@ export const execAgentTurn = async (
+     userId: deps.userId,
+   });
  
 +  let claudeCodeBinding: Awaited<ReturnType<typeof assertClaudeCodeAvailable>> | undefined;
 +
    let resumeParentMessage: Awaited<ReturnType<MessageModel['findById']>>;
  
    // `resumeApproval` implies the same "load parent message + skip user
-@@ -457,6 +463,17 @@ export const execAgentTurn = async (
+@@ -471,6 +477,17 @@ export const execAgentTurn = async (
      topicId,
    } = turn;
  
@@ -4627,7 +4632,7 @@ index ee13b5b2..6f5d97e3 100644
    // Shared context for the extracted execAgent pipeline stages
    // (`pipeline/*`). Built after the turn rows exist so every stage sees the
    // persisted anchors; `agentConfig` stays the same mutable object so stage
-@@ -602,7 +619,7 @@ export const execAgentTurn = async (
+@@ -618,7 +635,7 @@ export const execAgentTurn = async (
      approvalOwnerAssistantId,
      approvedToolEntries,
      attachedFileIds,
@@ -4636,7 +4641,7 @@ index ee13b5b2..6f5d97e3 100644
      disableSelfFeedbackIntentTool: params.disableSelfFeedbackIntentTool,
      disableTools: params.disableTools,
      ephemeralUserMessage,
-@@ -612,15 +629,15 @@ export const execAgentTurn = async (
+@@ -628,15 +645,15 @@ export const execAgentTurn = async (
      functionTools,
      globalMemoryEnabled,
      hasMentionedAgents,
@@ -4656,7 +4661,7 @@ index ee13b5b2..6f5d97e3 100644
      resumeApproval,
      resumeApprovalPlugin,
      resumeApprovals,
-@@ -630,7 +647,7 @@ export const execAgentTurn = async (
+@@ -646,7 +663,7 @@ export const execAgentTurn = async (
      runAttachments,
      selectedSkillIds,
      selectedToolIds,
@@ -4665,28 +4670,29 @@ index ee13b5b2..6f5d97e3 100644
      viewedGoal: appContext?.viewedGoal,
    });
  
-@@ -719,7 +736,7 @@ export const execAgentTurn = async (
+@@ -735,7 +752,7 @@ export const execAgentTurn = async (
  
    // 19. Create the operation via AgentRuntimeService, persist the reconnect
    // marker, and mint the gateway token (see `pipeline/startOperation`).
--  return traceSendStage('start_operation', () =>
+-  const started = await traceSendStage('start_operation', () =>
 +  const result = await traceSendStage('start_operation', () =>
      startOperation(
        {
          agentRuntimeService: deps.agentRuntimeService,
-@@ -737,7 +754,7 @@ export const execAgentTurn = async (
+@@ -753,7 +770,7 @@ export const execAgentTurn = async (
          approvalClaim,
          approvalSourceOperationId,
          approvalSourceToolMessageIds,
 -        autoStart,
 +        autoStart: isOrdinaryClaudeCode ? false : autoStart,
          onOperationCreated: params.onOperationCreated,
-         botContext,
-         botPlatformContext,
-@@ -774,4 +791,33 @@ export const execAgentTurn = async (
+         // From here the run's completion releases the slot and settles the
+         // fee; a run that never started (failed, or created without
+@@ -797,5 +814,33 @@ export const execAgentTurn = async (
        },
      ),
    );
+-  return started;
 +  if (isOrdinaryClaudeCode && result.success) {
 +    try {
 +      if (!claudeCodeBinding) throw new Error('Missing Claude Code run binding');
@@ -4718,10 +4724,10 @@ index ee13b5b2..6f5d97e3 100644
 +  return result;
  };
 diff --git a/apps/server/src/services/aiAgent/pipeline/operationPrep.ts b/apps/server/src/services/aiAgent/pipeline/operationPrep.ts
-index 5149030a..07e503ac 100644
+index f08c9679..3dd88637 100644
 --- a/apps/server/src/services/aiAgent/pipeline/operationPrep.ts
 +++ b/apps/server/src/services/aiAgent/pipeline/operationPrep.ts
-@@ -593,14 +593,21 @@ export const prepareOperation = async (
+@@ -601,14 +601,21 @@ export const prepareOperation = async (
    // gates. manifestMap is intentionally broader for discovery and must not
    // by itself authorize a tool in chat/custom mode or without function calls.
    const historicalActivatedToolIds = extractActivatedToolIdsFromMessages(allMessages) ?? [];
@@ -9659,10 +9665,10 @@ index ceea14cb..547d8d8f 100644
        await this.deps.topicModel.updateMetadata(topicId, { heteroSessionId: sessionId });
        log('persisted sessionId topic=%s sessionId=%s', topicId, sessionId);
 diff --git a/apps/server/src/services/heterogeneousAgent/HeterogeneousPersistenceHandler/intervention.ts b/apps/server/src/services/heterogeneousAgent/HeterogeneousPersistenceHandler/intervention.ts
-index 24ae3f07..21d3e139 100644
+index 0556e554..664adadc 100644
 --- a/apps/server/src/services/heterogeneousAgent/HeterogeneousPersistenceHandler/intervention.ts
 +++ b/apps/server/src/services/heterogeneousAgent/HeterogeneousPersistenceHandler/intervention.ts
-@@ -192,7 +192,7 @@ export async function applyToolIntervention(
+@@ -194,7 +194,7 @@ export async function applyToolIntervention(
    // Persist before any business side effect. The existing JSON plugin-state
    // column carries only correlation metadata; no schema/migration is needed.
    await deps.messageModel.updateMessagePlugin(toolMsgId, {
@@ -9816,10 +9822,10 @@ index cf4139fe..a2c15c07 100644
        } satisfies FlowControl,
        headers: options?.extraHeaders,
 diff --git a/docs/development/database-schema.dbml b/docs/development/database-schema.dbml
-index 1038a7cd..01130bc5 100644
+index cb541777..964072ea 100644
 --- a/docs/development/database-schema.dbml
 +++ b/docs/development/database-schema.dbml
-@@ -1492,6 +1492,87 @@ table chat_groups_agents {
+@@ -1552,6 +1552,87 @@ table chat_groups_agents {
    }
  }
  
@@ -9908,7 +9914,7 @@ index 1038a7cd..01130bc5 100644
    id uuid [pk, not null, default: `gen_random_uuid()`]
    user_connector_id uuid [not null]
 diff --git a/locales/en-US/chat.json b/locales/en-US/chat.json
-index 31572484..939ca6ba 100644
+index 00b43b98..020dc96a 100644
 --- a/locales/en-US/chat.json
 +++ b/locales/en-US/chat.json
 @@ -135,6 +135,14 @@
@@ -9927,7 +9933,7 @@ index 31572484..939ca6ba 100644
    "cliAuthGuide.actions.openCloudCredentials": "Update Cloud Token",
    "cliAuthGuide.actions.openDocs": "Open Sign-in Guide",
 diff --git a/locales/en-US/providers.json b/locales/en-US/providers.json
-index 5832d5c7..c36cbbd8 100644
+index 0a5d5de3..483d3021 100644
 --- a/locales/en-US/providers.json
 +++ b/locales/en-US/providers.json
 @@ -14,6 +14,9 @@
@@ -9941,7 +9947,7 @@ index 5832d5c7..c36cbbd8 100644
    "cohere.description": "Cohere delivers cutting-edge multilingual models, advanced retrieval, and AI workspaces for modern enterprises—all in one secure platform.",
    "cometapi.description": "CometAPI provides access to frontier models from OpenAI, Anthropic, Google, and more, letting users choose the best model and pricing for diverse use cases.",
 diff --git a/locales/zh-CN/chat.json b/locales/zh-CN/chat.json
-index a36de061..5093f0c6 100644
+index 7167f5fb..b7d43fa7 100644
 --- a/locales/zh-CN/chat.json
 +++ b/locales/zh-CN/chat.json
 @@ -135,6 +135,14 @@
@@ -9960,7 +9966,7 @@ index a36de061..5093f0c6 100644
    "cliAuthGuide.actions.openCloudCredentials": "更新云端 Token",
    "cliAuthGuide.actions.openDocs": "打开登录指南",
 diff --git a/locales/zh-CN/providers.json b/locales/zh-CN/providers.json
-index 3e2c6ca4..cd1a42f2 100644
+index 00e40f7e..5ecf732f 100644
 --- a/locales/zh-CN/providers.json
 +++ b/locales/zh-CN/providers.json
 @@ -14,6 +14,9 @@
@@ -11922,10 +11928,10 @@ index 00000000..5510f369
 +export type ClaudeCodeEventItem = typeof claudeCodeEvents.$inferSelect;
 +export type ClaudeCodeToolReceiptItem = typeof claudeCodeToolReceipts.$inferSelect;
 diff --git a/packages/database/src/schemas/index.ts b/packages/database/src/schemas/index.ts
-index b2bbf841..6713e681 100644
+index 9dd350ac..9cd0571a 100644
 --- a/packages/database/src/schemas/index.ts
 +++ b/packages/database/src/schemas/index.ts
-@@ -21,6 +21,7 @@ export * from './asyncTask';
+@@ -22,6 +22,7 @@ export * from './asyncTask';
  export * from './betterAuth';
  export * from './channel';
  export * from './chatGroup';
@@ -12934,10 +12940,10 @@ index 00000000..dba2cb80
 +
 +export const ASSISTANT_ISOLATION_ARGS = ['--setting-sources', '', '--strict-mcp-config'] as const;
 diff --git a/packages/heterogeneous-agents/src/spawn/index.ts b/packages/heterogeneous-agents/src/spawn/index.ts
-index ee90b45d..5fcfc60c 100644
+index 8742520b..a39b9b0b 100644
 --- a/packages/heterogeneous-agents/src/spawn/index.ts
 +++ b/packages/heterogeneous-agents/src/spawn/index.ts
-@@ -178,6 +178,7 @@ export {
+@@ -192,6 +192,7 @@ export {
  // `resolveCliSpawnPlan`), so pulling it in would break unrelated suites at
  // import time. Import it from the dedicated `@lobechat/heterogeneous-agents/
  // resolveCliCommand` subpath instead.
@@ -13172,10 +13178,10 @@ index 00000000..3bba683e
 +  });
 +});
 diff --git a/packages/heterogeneous-agents/src/spawn/spawnAgent.ts b/packages/heterogeneous-agents/src/spawn/spawnAgent.ts
-index 953705da..ee36143f 100644
+index 9418353b..ca92d8f2 100644
 --- a/packages/heterogeneous-agents/src/spawn/spawnAgent.ts
 +++ b/packages/heterogeneous-agents/src/spawn/spawnAgent.ts
-@@ -15,6 +15,12 @@ import {
+@@ -16,6 +16,12 @@ import {
    spawnTraeAcpAgent,
  } from './acpSpawnAgent';
  import { AgentStreamPipeline, type UploadHeterogeneousImage } from './agentStreamPipeline';
@@ -13188,7 +13194,7 @@ index 953705da..ee36143f 100644
  import { ClaudeCodeLiveInput } from './claudeCodeLiveInput';
  import { readClaudeCodeSessionCost } from './claudeCodeSessionCost';
  import { resolveCliSpawnPlan } from './cliSpawn';
-@@ -50,7 +56,7 @@ export interface SpawnAgentOptions {
+@@ -51,7 +57,7 @@ export interface SpawnAgentOptions {
    cwd?: string;
    /** Create a dedicated Unix process group. Disable beneath a detached wrapper. */
    detached?: boolean;
@@ -13197,7 +13203,7 @@ index 953705da..ee36143f 100644
    env?: Record<string, string>;
    /** Extra CLI arguments appended after the agent's preset flags. */
    extraArgs?: string[];
-@@ -61,6 +67,8 @@ export interface SpawnAgentOptions {
+@@ -62,6 +68,8 @@ export interface SpawnAgentOptions {
     * connected client renders live token streaming.
     */
    includePartialMessages?: boolean;
@@ -13206,7 +13212,7 @@ index 953705da..ee36143f 100644
    /** Initial model selected through the agent protocol after session setup (Droid/TRAE ACP). */
    initialModel?: string;
    /**
-@@ -69,6 +77,8 @@ export interface SpawnAgentOptions {
+@@ -70,6 +78,8 @@ export interface SpawnAgentOptions {
     * plain string this is unused.
     */
    inputOptions?: BuildAgentInputOptions;
@@ -13215,7 +13221,7 @@ index 953705da..ee36143f 100644
    /**
     * (Claude Code only) Keep stdin open while the session can still use input,
     * exposing `sendUserMessage` / `interruptTurn` on the handle. Runtime end is
-@@ -281,6 +291,7 @@ interface BuildSpawnArgsParams {
+@@ -282,6 +292,7 @@ interface BuildSpawnArgsParams {
    includePartialMessages: boolean;
    /** Per-agent input args produced by `buildAgentInput` (e.g. Codex `--image`). */
    inputArgs: string[];
@@ -13223,7 +13229,7 @@ index 953705da..ee36143f 100644
    /** (Claude Code only) Replay consumed user messages for live input. */
    liveInput?: boolean;
    /** Native session id for resume; undefined for fresh runs. */
-@@ -291,6 +302,7 @@ const buildClaudeCodeArgs = ({
+@@ -292,6 +303,7 @@ const buildClaudeCodeArgs = ({
    extraArgs,
    includePartialMessages,
    inputArgs,
@@ -13231,7 +13237,7 @@ index 953705da..ee36143f 100644
    liveInput,
    resumeSessionId,
  }: BuildSpawnArgsParams) => [
-@@ -301,6 +313,7 @@ const buildClaudeCodeArgs = ({
+@@ -302,6 +314,7 @@ const buildClaudeCodeArgs = ({
    ...(resumeSessionId ? ['--resume', resumeSessionId] : []),
    ...inputArgs,
    ...extraArgs,
@@ -13239,7 +13245,7 @@ index 953705da..ee36143f 100644
  ];
  
  const buildCodeBuddyArgs = ({
-@@ -420,7 +433,9 @@ const buildSpawnArgs = (params: BuildSpawnArgsParams): string[] => {
+@@ -421,7 +434,9 @@ const buildSpawnArgs = (params: BuildSpawnArgsParams): string[] => {
  };
  
  const killProcessTree = (proc: ChildProcess, signal: NodeJS.Signals, detached: boolean): void => {
@@ -13250,7 +13256,7 @@ index 953705da..ee36143f 100644
  
    // On Windows the spawn `detached` flag has different semantics; fall back
    // to a direct signal. Tree-kill via `taskkill` is what the desktop
-@@ -467,6 +482,35 @@ const killProcessTree = (proc: ChildProcess, signal: NodeJS.Signals, detached: b
+@@ -468,6 +483,35 @@ const killProcessTree = (proc: ChildProcess, signal: NodeJS.Signals, detached: b
   * failed image fetch surfaces before the child starts.
   */
  export const spawnAgent = async (options: SpawnAgentOptions): Promise<SpawnAgentHandle> => {
@@ -13286,7 +13292,7 @@ index 953705da..ee36143f 100644
    if (options.agentType === 'trae') return spawnTraeAcpAgent(options);
  
    const command = resolveHeterogeneousAgentCommand(options.agentType, options.command);
-@@ -490,7 +534,7 @@ export const spawnAgent = async (options: SpawnAgentOptions): Promise<SpawnAgent
+@@ -494,7 +538,7 @@ export const spawnAgent = async (options: SpawnAgentOptions): Promise<SpawnAgent
    // caller's env, not the inherited one: a standalone run nested inside some
    // other conversation is not answering it.
    const lobeHubCli =
@@ -13295,7 +13301,7 @@ index 953705da..ee36143f 100644
        ? await prepareClaudeCodeLobeHubCli(options.prompt, options.extraArgs, {
            resumed: Boolean(options.resumeSessionId),
            version: options.commandVersion,
-@@ -502,11 +546,6 @@ export const spawnAgent = async (options: SpawnAgentOptions): Promise<SpawnAgent
+@@ -506,11 +550,6 @@ export const spawnAgent = async (options: SpawnAgentOptions): Promise<SpawnAgent
      options.inputOptions,
    );
    const inputPlan = { ...promptPlan, args: [...lobeHubCli.args, ...promptPlan.args] };
@@ -13307,7 +13313,7 @@ index 953705da..ee36143f 100644
    // Codex builds each shell command's env from `[shell_environment_policy]`,
    // not from its own process env, so a user's `inherit = "core"` strips the
    // run context `lh` needs. Forward it as `shell_environment_policy.set.*`
-@@ -542,6 +581,7 @@ const spawnCliAgent = async (
+@@ -546,6 +585,7 @@ const spawnCliAgent = async (
      extraArgs: options.extraArgs ?? [],
      includePartialMessages: options.includePartialMessages ?? false,
      inputArgs: inputPlan.args,
@@ -13315,7 +13321,7 @@ index 953705da..ee36143f 100644
      liveInput,
      resumeSessionId: options.resumeSessionId,
    });
-@@ -566,7 +606,7 @@ const spawnCliAgent = async (
+@@ -570,7 +610,7 @@ const spawnCliAgent = async (
          })
        : undefined;
  
@@ -13325,11 +13331,13 @@ index 953705da..ee36143f 100644
    const startedAt = Date.now();
    const proc = spawnManaged(cliSpawnPlan.command, cliSpawnPlan.args, {
 diff --git a/packages/locales/src/default/chat.ts b/packages/locales/src/default/chat.ts
-index ae15c80e..1e0bada9 100644
+index c7390106..3927b2a9 100644
 --- a/packages/locales/src/default/chat.ts
 +++ b/packages/locales/src/default/chat.ts
-@@ -1,4 +1,14 @@
- export default {
+@@ -5,6 +5,16 @@ export default {
+   'directMention.progress.usingTool': 'Using {{name}}…',
+   'directMention.progress.viewFullRecord': 'View full record',
+   'sharePage.app.linkCopied': 'Link copied',
 +  'claudeCodeServer.name': 'Claude Code (server)',
 +  'claudeCodeServer.checking': 'Checking your server Claude Code connection\u2026',
 +  'claudeCodeServer.disabled':
@@ -13344,7 +13352,7 @@ index ae15c80e..1e0bada9 100644
    'sharePage.app.help': 'Trouble opening the app?',
    'sharePage.app.helpDescription':
 diff --git a/packages/model-bank/package.json b/packages/model-bank/package.json
-index 1184e801..c0217f39 100644
+index d77ed5f9..d95e608f 100644
 --- a/packages/model-bank/package.json
 +++ b/packages/model-bank/package.json
 @@ -12,6 +12,7 @@
@@ -13512,7 +13520,7 @@ index 00000000..9a77becf
 +  toolCallId: string;
 +}
 diff --git a/packages/types/src/index.ts b/packages/types/src/index.ts
-index 6e3d7d88..9df798f1 100644
+index d967478a..f65b40f9 100644
 --- a/packages/types/src/index.ts
 +++ b/packages/types/src/index.ts
 @@ -11,11 +11,13 @@ export * from './aiChat';
@@ -13530,7 +13538,7 @@ index 6e3d7d88..9df798f1 100644
  export * from './creds';
  export * from './dashboard';
 diff --git a/pnpm-workspace.yaml b/pnpm-workspace.yaml
-index 55bb8902..45220e2a 100644
+index c44fcc3a..1618c8d9 100644
 --- a/pnpm-workspace.yaml
 +++ b/pnpm-workspace.yaml
 @@ -24,6 +24,7 @@ packages:
@@ -13829,10 +13837,10 @@ index 47b7b031..a4c0d5a9 100644
      isHeterogeneousAgent,
      isModelDisabled,
 diff --git a/src/features/ModelSelect/index.tsx b/src/features/ModelSelect/index.tsx
-index f1361b4e..9f89c28d 100644
+index 71c2f5fd..91047d0c 100644
 --- a/src/features/ModelSelect/index.tsx
 +++ b/src/features/ModelSelect/index.tsx
-@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
+@@ -17,6 +17,7 @@ import { useTranslation } from 'react-i18next';
  
  import { ModelIcon } from '@/components/LobeIcons';
  import { ModelItemRender, ProviderItemRender, TAG_CLASSNAME } from '@/components/ModelSelect';
@@ -13840,7 +13848,7 @@ index f1361b4e..9f89c28d 100644
  import { aiProviderSelectors, useAiInfraStore } from '@/store/aiInfra';
  import { type EnabledProviderWithModels } from '@/types/aiProvider';
  
-@@ -92,6 +93,8 @@ interface ModelSelectProps extends Pick<
+@@ -103,6 +104,8 @@ interface ModelSelectProps extends Pick<
    | 'variant'
  > {
    defaultValue?: { model: string; provider?: string };
@@ -13849,7 +13857,7 @@ index f1361b4e..9f89c28d 100644
    initialWidth?: boolean;
    modelType?: 'asr' | 'chat' | 'embedding';
    onChange?: (props: { model: string; provider: string }) => void;
-@@ -122,19 +125,24 @@ const ModelSelect = memo<ModelSelectProps>(
+@@ -133,19 +136,24 @@ const ModelSelect = memo<ModelSelectProps>(
      style,
      variant,
      initialWidth = false,
@@ -14188,10 +14196,10 @@ index 00000000..104db086
 +  return { ...response, enabledList };
 +};
 diff --git a/src/libs/swr/keys.ts b/src/libs/swr/keys.ts
-index 9a1908c1..6de08200 100644
+index e0fe1d69..0f83184a 100644
 --- a/src/libs/swr/keys.ts
 +++ b/src/libs/swr/keys.ts
-@@ -53,6 +53,10 @@ export const channelKeys = {
+@@ -54,6 +54,10 @@ export const channelKeys = {
    ),
  };
  
@@ -14643,7 +14651,7 @@ index 00000000..dae8e6ac
 +  return { heterogeneousProvider, runtimeBackend };
 +};
 diff --git a/src/store/chat/slices/agentRun/actions/entries/conversationControl.ts b/src/store/chat/slices/agentRun/actions/entries/conversationControl.ts
-index daf66097..7bc6092f 100644
+index dbdedf8c..46979998 100644
 --- a/src/store/chat/slices/agentRun/actions/entries/conversationControl.ts
 +++ b/src/store/chat/slices/agentRun/actions/entries/conversationControl.ts
 @@ -36,6 +36,7 @@ import {
@@ -14691,16 +14699,16 @@ index daf66097..7bc6092f 100644
    /**
     * Local tool-interaction resumes are continuations of the original request.
     * Preserve the request trigger so downstream chat requests keep the same
-@@ -1692,6 +1663,9 @@ export class ConversationControlActionImpl {
-     // provenance for local desktop IPC / legacy fallback, never server auth.
+@@ -1691,6 +1662,9 @@ export class ConversationControlActionImpl {
+     // remote callback. The server still authorizes the operation independently.
      const { messageOperationMap } = this.#get();
      const candidateOperationId =
 +      (toolMessage.pluginState?.claudeCodeServer === true
 +        ? originalIntervention?.operationId
 +        : undefined) ??
        (toolMessage.parentId && messageOperationMap?.[toolMessage.parentId]) ??
-       messageOperationMap?.[toolMessageId];
- 
+       messageOperationMap?.[toolMessageId] ??
+       originalIntervention?.operationId;
 @@ -1706,8 +1680,10 @@ export class ConversationControlActionImpl {
      // Resolve the runtime execution op before choosing IPC vs remote transport.
      // For local CC this is `execHeterogeneousAgent`; for gateway/device runs
@@ -14715,7 +14723,7 @@ index daf66097..7bc6092f 100644
      // A cold/GC'd run still uses the card's captured context, never the active tab.
      const operationAlive = !!operation;
 diff --git a/src/store/chat/slices/agentRun/actions/entries/conversationLifecycle/index.ts b/src/store/chat/slices/agentRun/actions/entries/conversationLifecycle/index.ts
-index 87ff7d59..23a868e0 100644
+index 4394d110..674610ea 100644
 --- a/src/store/chat/slices/agentRun/actions/entries/conversationLifecycle/index.ts
 +++ b/src/store/chat/slices/agentRun/actions/entries/conversationLifecycle/index.ts
 @@ -1,7 +1,7 @@
@@ -14727,15 +14735,15 @@ index 87ff7d59..23a868e0 100644
  import { formatSelectedSkillsContext, formatSelectedToolsContext } from '@lobechat/context-engine';
  import {
    collectHeteroAttachedFiles,
-@@ -76,6 +76,7 @@ import {
- import { selectRuntimeType } from '@/store/chat/slices/agentRun/actions/dispatch/agentDispatcher';
- import { executeDirectMention } from '@/store/chat/slices/agentRun/actions/dispatch/directMentionExecutor';
+@@ -80,6 +80,7 @@ import {
+   toDirectMentionThreadTitle,
+ } from '@/store/chat/slices/agentRun/actions/dispatch/directMentionExecutor';
  import { resolveNewThreadIntent } from '@/store/chat/slices/agentRun/actions/dispatch/newThreadIntent';
 +import { resolveAssistantTransport } from '@/store/chat/slices/agentRun/actions/dispatch/resolveAssistantTransport';
  import { buildRunLifecycle } from '@/store/chat/slices/agentRun/actions/lifecycle/buildRunLifecycle';
  import {
    findOrphanedQueueKey,
-@@ -455,15 +456,13 @@ export class ConversationLifecycleActionImpl {
+@@ -458,15 +459,13 @@ export class ConversationLifecycleActionImpl {
      const { newTopicProject, stagedDirectory, stagedProjectId } = projectRun;
      if (stagedDirectory) consumePendingTopicRepos(ownerAgentId); // a cloud repo pick conflicts
  
@@ -14758,7 +14766,7 @@ index 87ff7d59..23a868e0 100644
      const runtimeType = selectRuntimeType({
        boundDeviceId: agencyConfig?.boundDeviceId,
        executionTarget: agencyConfig?.executionTarget,
-@@ -474,6 +473,7 @@ export class ConversationLifecycleActionImpl {
+@@ -477,6 +476,7 @@ export class ConversationLifecycleActionImpl {
        // started server-side via runTask) pass `forceRuntime` to override
        // the agent's local/cloud preference.
        parentRuntime: forceRuntime,

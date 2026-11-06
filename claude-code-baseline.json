@@ -1,15 +1,15 @@
 {
-  "upstream": "78e40eac9c7778789d0bed6acbac557a99a45993",
+  "upstream": "676875e79459b5967c7d87c4f2205bf2be81d43c",
   "wrapperRevision": "ac958948f7fc02e81f20cd9b4767deb55b54de4c",
   "productionImage": "ghcr.io/wzyu26/lobehub-canary-qq@sha256:918f63749064c51b062ba544ca410c88acfc11282f43091cff6423654d642aaa",
   "productionQqPatch": "18187-8d48bcdbd746aa036f0fde9f1ba934cc8ac26a14",
   "localQqBaseline": "edfe0138f7abf04aafef2b26d517aaa3e4850228",
-  "sourceRevision": "cloud-rebase-2026-11-01 (laptop source/ still at 5b21cdac71 on old upstream; rebuild source from this patch before editing)",
-  "patchSha256": "3a3096acd6905e6aeb49f7c6990985f371a2bccf4b482ac6c4af483dbd919be4",
+  "sourceRevision": "rebased-2026-11-06 onto upstream 676875e7 (laptop source/ is stale; rebuild source from this patch before editing)",
+  "patchSha256": "150992fca97d31dc22a208cc60665d755bb7b64e5af6e2a16aef79296e53a236",
   "officialClaudeCode": "2.1.301",
   "featureFlag": "CLAUDE_CODE_SERVER_ENABLED",
   "defaultEnabled": false,
-  "verifiedAt": "2026-11-01",
+  "verifiedAt": "2026-11-06",
   "server": {
     "cpu": 4,
     "memoryMiB": 7947
