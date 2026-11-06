@@ -8164,10 +8164,10 @@ index 00000000..83559553
 +};
 diff --git a/apps/server/src/services/claudeCode/prepareContext.test.ts b/apps/server/src/services/claudeCode/prepareContext.test.ts
 new file mode 100644
-index 00000000..19706fa3
+index 00000000..d9f26af9
 --- /dev/null
 +++ b/apps/server/src/services/claudeCode/prepareContext.test.ts
-@@ -0,0 +1,224 @@
+@@ -0,0 +1,239 @@
 +import type { AgentState, ContextBuildOutput } from '@lobechat/agent-runtime';
 +import { CanvasManifest } from '@lobechat/builtin-tool-canvas';
 +import { ToolNameResolver } from '@lobechat/context-engine';
@@ -8308,7 +8308,7 @@ index 00000000..19706fa3
 +    expect(prepare(state).request.tools).toEqual([]);
 +  });
 +
-+  it('preserves multimodal input and rejects unsupported attachments', () => {
++  it('attaches only the current message images and rejects unsupported attachments', () => {
 +    const context = makeContext();
 +    context.messages[4] = {
 +      content: [
@@ -8318,6 +8318,21 @@ index 00000000..19706fa3
 +      role: 'user',
 +    };
 +    expect(prepare(makeState(), context).request.prompt).toContainEqual({
++      source: { type: 'url', url: 'https://example.com/image.png' },
++      type: 'image',
++    });
++    context.messages[2] = {
++      content: [{ type: 'image_url', image_url: { url: 'https://example.com/old.png' } }],
++      role: 'user',
++    };
++    const { prompt } = prepare(makeState(), context).request;
++    expect(prompt).not.toContainEqual(
++      expect.objectContaining({ source: { type: 'url', url: 'https://example.com/old.png' } }),
++    );
++    expect(prompt).toContainEqual(
++      expect.objectContaining({ text: expect.stringContaining('earlier message'), type: 'text' }),
++    );
++    expect(prompt).toContainEqual({
 +      source: { type: 'url', url: 'https://example.com/image.png' },
 +      type: 'image',
 +    });
@@ -8394,10 +8409,10 @@ index 00000000..19706fa3
 +});
 diff --git a/apps/server/src/services/claudeCode/prepareContext.ts b/apps/server/src/services/claudeCode/prepareContext.ts
 new file mode 100644
-index 00000000..1ec39dfa
+index 00000000..399bd9d7
 --- /dev/null
 +++ b/apps/server/src/services/claudeCode/prepareContext.ts
-@@ -0,0 +1,134 @@
+@@ -0,0 +1,145 @@
 +import type { AgentState, ContextBuildOutput } from '@lobechat/agent-runtime';
 +import { ToolNameResolver } from '@lobechat/context-engine';
 +import type {
@@ -8416,7 +8431,15 @@ index 00000000..1ec39dfa
 +  tool_calls?: unknown;
 +}
 +
-+const contentBlocks = (content: unknown): AgentContentBlock[] => {
++const EARLIER_IMAGE_NOTE =
++  '[An image the user sent in an earlier message. It is not attached again; rely on what was said about it, or ask the user to send it again if you need to look at it.]';
++
++/**
++ * Every turn starts a fresh CLI session from the whole history, so a historical
++ * image would be uploaded again on each turn and the CLI stores it as a new file
++ * the model then re-reads. Only the current message's images are attached.
++ */
++const contentBlocks = (content: unknown, attachImages = true): AgentContentBlock[] => {
 +  if (content == null || content === '') return [];
 +  if (typeof content === 'string') return [{ text: content, type: 'text' }];
 +  if (!Array.isArray(content)) throw new Error('Unsupported Claude Code message content');
@@ -8425,7 +8448,9 @@ index 00000000..1ec39dfa
 +      return [{ text: part.text, type: 'text' }];
 +    }
 +    if (part?.type === 'image_url' && typeof part.image_url?.url === 'string') {
-+      return [{ source: { type: 'url', url: part.image_url.url }, type: 'image' }];
++      return attachImages
++        ? [{ source: { type: 'url', url: part.image_url.url }, type: 'image' }]
++        : [{ text: EARLIER_IMAGE_NOTE, type: 'text' }];
 +    }
 +    // Never silently discard a video/audio/file which was not converted by CE.
 +    throw new Error(`Claude Code cannot consume the prepared attachment type: ${part?.type}`);
@@ -8510,12 +8535,13 @@ index 00000000..1ec39dfa
 +  const currentContext = unavailableTools.length
 +    ? `${systemPrompt}\n\nThe following tools cannot execute on this server and are unavailable: ${unavailableTools.join(', ')}.`
 +    : systemPrompt;
-+  const prompt = conversation.flatMap((message): AgentContentBlock[] => [
++  const currentUserIndex = conversation.findLastIndex((message) => message.role === 'user');
++  const prompt = conversation.flatMap((message, index): AgentContentBlock[] => [
 +    {
 +      text: JSON.stringify({ role: message.role, tool_call_id: message.tool_call_id }),
 +      type: 'text',
 +    },
-+    ...contentBlocks(message.content),
++    ...contentBlocks(message.content, index === currentUserIndex),
 +    ...(message.tool_calls
 +      ? [{ text: JSON.stringify({ tool_calls: message.tool_calls }), type: 'text' as const }]
 +      : []),
