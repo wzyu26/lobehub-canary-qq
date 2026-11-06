@@ -84,10 +84,10 @@ index 00000000..d9c8f162
 +    }),
 +});
 diff --git a/apps/server/src/routers/lambda/index.ts b/apps/server/src/routers/lambda/index.ts
-index f9ef80cf..98c96e88 100644
+index 592ff15c..c3fcfa4b 100644
 --- a/apps/server/src/routers/lambda/index.ts
 +++ b/apps/server/src/routers/lambda/index.ts
-@@ -59,6 +59,7 @@ import { dashboardRouter } from './dashboard';
+@@ -61,6 +61,7 @@ import { dashboardRouter } from './dashboard';
  import { deviceRouter } from './device';
  import { deviceMetricRouter } from './deviceMetric';
  import { documentRouter } from './document';
@@ -95,7 +95,7 @@ index f9ef80cf..98c96e88 100644
  import { documentCommentRouter } from './documentComment';
  import { documentLikeRouter } from './documentLike';
  import { environmentRouter } from './environment';
-@@ -163,6 +164,7 @@ export const lambdaRouter = router({
+@@ -168,6 +169,7 @@ export const lambdaRouter = router({
    device: deviceRouter,
    deviceMetric: deviceMetricRouter,
    document: documentRouter,
@@ -104,10 +104,10 @@ index f9ef80cf..98c96e88 100644
    documentLike: documentLikeRouter,
    exporter: exporterRouter,
 diff --git a/locales/en-US/file.json b/locales/en-US/file.json
-index b391c74d..53924435 100644
+index 77f8693b..0e6b8b12 100644
 --- a/locales/en-US/file.json
 +++ b/locales/en-US/file.json
-@@ -281,6 +281,25 @@
+@@ -282,6 +282,25 @@
    "pageEditor.agentUnavailable.noGateway": "The Agent can't edit pages until Gateway Mode is on. Ask your admin to turn it on.",
    "pageEditor.agentUnavailable.sandboxUnconfigured": "The Agent can't edit pages until a sandbox is configured. Ask your admin to set one up.",
    "pageEditor.agentUnavailable.viewDocs": "View docs",
@@ -132,12 +132,12 @@ index b391c74d..53924435 100644
 +  "pageEditor.aiComments.unanswered": "No answer yet.",
    "pageEditor.artifactTag": "Artifact",
    "pageEditor.autoSaveMessage": "Your page is saved automatically. No need to save manually.",
-   "pageEditor.chooseIcon": "Choose Icon",
+   "pageEditor.charLimit.blockedDescription": "Changes are not saved. Shorten the page or upgrade your plan to keep editing.",
 diff --git a/locales/zh-CN/file.json b/locales/zh-CN/file.json
-index a52800c2..755de3da 100644
+index 009b2f89..7841bbc9 100644
 --- a/locales/zh-CN/file.json
 +++ b/locales/zh-CN/file.json
-@@ -281,6 +281,25 @@
+@@ -282,6 +282,25 @@
    "pageEditor.agentUnavailable.noGateway": "开启 Gateway 模式后，Agent 才能编辑页面。请联系管理员开启。",
    "pageEditor.agentUnavailable.sandboxUnconfigured": "配置沙箱后，Agent 才能编辑页面。请联系管理员配置。",
    "pageEditor.agentUnavailable.viewDocs": "查看文档",
@@ -162,7 +162,7 @@ index a52800c2..755de3da 100644
 +  "pageEditor.aiComments.unanswered": "还没有回答。",
    "pageEditor.artifactTag": "Artifact",
    "pageEditor.autoSaveMessage": "文稿会自动保存，无需手动保存",
-   "pageEditor.chooseIcon": "选择图标",
+   "pageEditor.charLimit.blockedDescription": "改动未保存。请缩短页面内容，或升级套餐后继续编辑。",
 diff --git a/packages/database/src/models/__tests__/documentAiComment.test.ts b/packages/database/src/models/__tests__/documentAiComment.test.ts
 new file mode 100644
 index 00000000..19c0684d
@@ -379,12 +379,12 @@ index 00000000..1136ff37
 +export type DocumentAiCommentItem = typeof documentAiComments.$inferSelect;
 +export type NewDocumentAiComment = typeof documentAiComments.$inferInsert;
 diff --git a/packages/locales/src/default/file.ts b/packages/locales/src/default/file.ts
-index 9086c9d9..040d5598 100644
+index f2df2a4b..cea27634 100644
 --- a/packages/locales/src/default/file.ts
 +++ b/packages/locales/src/default/file.ts
-@@ -320,6 +320,27 @@ export default {
-   'pageEditor.artifactTag': 'Artifact',
-   'pageEditor.autoSaveMessage': 'Your page is saved automatically. No need to save manually.',
+@@ -331,6 +331,27 @@ export default {
+   'pageEditor.charLimit.overDescription':
+     'Changes cannot be saved while the page is over the limit. Shorten the page or upgrade your plan.',
    'pageEditor.chooseIcon': 'Choose Icon',
 +  'pageEditor.aiComments.cancel': 'Cancel',
 +  'pageEditor.aiComments.defaultQuestion': 'Explain or comment on this passage.',
@@ -1805,7 +1805,7 @@ index 00000000..ac4d980d
 +
 +export type AICommentsState = ReturnType<typeof useAICommentsState>;
 diff --git a/src/features/PageEditor/Header/index.tsx b/src/features/PageEditor/Header/index.tsx
-index 186bb6ab..1b773b9b 100644
+index 27018ebd..fff66524 100644
 --- a/src/features/PageEditor/Header/index.tsx
 +++ b/src/features/PageEditor/Header/index.tsx
 @@ -29,6 +29,7 @@ import NavHeader from '@/features/NavHeader';
@@ -1816,7 +1816,7 @@ index 186bb6ab..1b773b9b 100644
  import { useDocumentComments } from '../DocumentComments/context';
  import EditingIndicator from '../EditingIndicator';
  import { useIsHtmlPage } from '../HtmlPageBody';
-@@ -68,6 +69,9 @@ const Header = memo(() => {
+@@ -69,6 +70,9 @@ const Header = memo(() => {
    // Comments exist only for workspace documents with a comments panel to show
    // them in; the provider is absent otherwise.
    const comments = useDocumentComments();
@@ -1826,7 +1826,7 @@ index 186bb6ab..1b773b9b 100644
    const [isCommentsPanelOpen, setCommentsPanelOpen] = usePageEditorStore((s) => [
      s.commentsPanelOpen,
      s.setCommentsPanelOpen,
-@@ -130,23 +134,23 @@ const Header = memo(() => {
+@@ -132,23 +136,23 @@ const Header = memo(() => {
            >
              <ActionIcon icon={MoreHorizontal} size={DESKTOP_HEADER_ICON_SMALL_SIZE} />
            </DropdownMenu>
@@ -1857,27 +1857,27 @@ index 186bb6ab..1b773b9b 100644
                  />
                )}
 diff --git a/src/features/PageEditor/PageEditor.tsx b/src/features/PageEditor/PageEditor.tsx
-index 6d5db816..a5884a48 100644
+index 6270c508..8cc90710 100644
 --- a/src/features/PageEditor/PageEditor.tsx
 +++ b/src/features/PageEditor/PageEditor.tsx
 @@ -5,6 +5,7 @@ import { cssVar, Flexbox } from '@lobehub/ui';
- import type { FC, ReactNode, UIEvent } from 'react';
+ import type { FC, MouseEvent, ReactNode, UIEvent } from 'react';
  import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
  
 +import { useActiveWorkspaceId } from '@/business/client/hooks/useActiveWorkspaceId';
  import type { ComposerTarget } from '@/features/Conversation/types';
+ import CharLimitBanner from '@/features/EditorCanvas/CharLimitBanner';
  import DiffAllToolbar from '@/features/EditorCanvas/DiffAllToolbar';
- import PageMetaBar from '@/features/PageEditor/PageMetaBar';
-@@ -14,6 +15,8 @@ import { usePermission } from '@/hooks/usePermission';
+@@ -15,6 +16,8 @@ import { usePermission } from '@/hooks/usePermission';
  import { pageActions } from '@/store/page';
  import { StyleSheet } from '@/utils/styles';
  
 +import { AICommentsProvider } from './AIComments/context';
 +import AICommentsPanel from './AIComments/Panel';
+ import { focusEditorAtBlankPoint } from './blankAreaClick';
  import { usePageCollabEligible, usePageCollabEnabled } from './collab/usePageCollab';
  import DocumentComments from './DocumentComments';
- import BlockCommentMarker from './DocumentComments/BlockCommentMarker';
-@@ -141,6 +144,8 @@ interface PageEditorCanvasProps {
+@@ -144,6 +147,8 @@ interface PageEditorCanvasProps {
  const PageEditorCanvas = memo<PageEditorCanvasProps>((props) => {
    const { askCopilotTarget, header, fullWidthHeader, rightPanel } = props;
    const showRightPanel = rightPanel !== false;
@@ -1886,7 +1886,7 @@ index 6d5db816..a5884a48 100644
    const editable = usePageEditable();
    const editor = usePageEditorStore((s) => s.editor);
    const documentId = usePageEditorStore((s) => s.documentId);
-@@ -406,14 +411,25 @@ const PageEditorCanvas = memo<PageEditorCanvasProps>((props) => {
+@@ -428,14 +433,25 @@ const PageEditorCanvas = memo<PageEditorCanvasProps>((props) => {
    // Comment state is hosted above every surface that reads it: the header's
    // toggle, the list below the body and the panel beside it share one set of
    // caches, and the panel's cards follow the body pane's scroll.
@@ -1920,7 +1920,7 @@ index 6d5db816..a5884a48 100644
    );
  
    if (fullWidthHeader) {
-@@ -422,7 +438,7 @@ const PageEditorCanvas = memo<PageEditorCanvasProps>((props) => {
+@@ -444,7 +460,7 @@ const PageEditorCanvas = memo<PageEditorCanvasProps>((props) => {
          {headerSlot}
          <Flexbox horizontal flex={1} style={{ minHeight: 0 }} width={'100%'}>
            {editorPane}
@@ -1929,7 +1929,7 @@ index 6d5db816..a5884a48 100644
            {showRightPanel && <RightPanel />}
          </Flexbox>
        </Flexbox>,
-@@ -437,7 +453,7 @@ const PageEditorCanvas = memo<PageEditorCanvasProps>((props) => {
+@@ -459,7 +475,7 @@ const PageEditorCanvas = memo<PageEditorCanvasProps>((props) => {
        width={'100%'}
      >
        {editorPane}
