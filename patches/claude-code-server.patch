@@ -1707,7 +1707,7 @@ new file mode 100644
 index 00000000..a35c8b76
 --- /dev/null
 +++ b/apps/claude-code-worker/src/outbox.ts
-@@ -0,0 +1,244 @@
+@@ -0,0 +1,249 @@
 +import { createHash, randomUUID } from 'node:crypto';
 +import { mkdir, open, readdir, readFile, rename, rm } from 'node:fs/promises';
 +import path from 'node:path';
@@ -1938,7 +1938,12 @@ index 00000000..a35c8b76
 +export const recoverRuns = async (root: string, api: WorkerApi, signal?: AbortSignal) => {
 +  for (const box of await RunOutbox.recover(root)) {
 +    if (!box.record.finish || box.record.finish.status === 'completed') {
-+      await box.setFinish({ error: 'Worker restarted during execution', status: 'interrupted' });
++      // Also reached when the previous cycle's run threw without finishing, so
++      // this is not proof that the process restarted.
++      await box.setFinish({
++        error: 'Claude Code run stopped unexpectedly (worker error or restart)',
++        status: 'interrupted',
++      });
 +    }
 +    try {
 +      await box.finish(api, signal);
@@ -2587,7 +2592,7 @@ new file mode 100644
 index 00000000..fcfad3e4
 --- /dev/null
 +++ b/apps/claude-code-worker/src/service.ts
-@@ -0,0 +1,83 @@
+@@ -0,0 +1,87 @@
 +import { mkdir } from 'node:fs/promises';
 +import { setTimeout as delay } from 'node:timers/promises';
 +
@@ -2655,10 +2660,14 @@ index 00000000..fcfad3e4
 +          const claim = await api.post<ClaudeCodeWorkerClaim | null>('/claim', {}, signal);
 +          if (claim) await runOperation(claim, { api, config, mcp, signal });
 +        }
-+      } catch {
-+        // Keep diagnostics free of prompts, account identifiers and credentials.
++      } catch (error) {
++        // Keep diagnostics free of prompts, account identifiers and credentials:
++        // only the error type and a bounded message.
 +        if (!signal.aborted)
-+          console.error('Worker cycle failed; queued work and local receipts are retained');
++          console.error(
++            'Worker cycle failed; queued work and local receipts are retained:',
++            error instanceof Error ? `${error.name}: ${error.message.slice(0, 200)}` : typeof error,
++          );
 +      }
 +      try {
 +        await delay(config.pollIntervalMs, undefined, { signal });
@@ -14993,4 +15002,215 @@ index 00000000..46159da8
 +    currentOperationId = operation.parentOperationId;
 +  }
 +  return lastResolved ?? { operationId: initialOperationId };
++};
+diff --git a/packages/model-runtime/src/core/anthropicCompatibleFactory/generateObject.ts b/packages/model-runtime/src/core/anthropicCompatibleFactory/generateObject.ts
+index 52b7efd0ae..8e05c3456a 100644
+--- a/packages/model-runtime/src/core/anthropicCompatibleFactory/generateObject.ts
++++ b/packages/model-runtime/src/core/anthropicCompatibleFactory/generateObject.ts
+@@ -8,6 +8,7 @@ import type { GenerateObjectOptions, GenerateObjectPayload } from '../../types';
+ import { buildAnthropicMessages, buildAnthropicTools } from '../contextBuilders/anthropic';
+ import { buildAnthropicInitialUsage } from '../usageConverters/anthropic';
+ import { withUsageCost } from '../usageConverters/utils/withUsageCost';
++import { toStrictToolInputSchema } from './strictToolSchema';
+ 
+ const log = debug('lobe-model-runtime:anthropic:generate-object');
+ 
+@@ -106,6 +107,10 @@ export const buildAnthropicGenerateObjectRequest = async (
+           ? { strict: schema.strict }
+           : {}),
+     };
++    // Strict mode rejects limits such as `maxItems` / `maxLength` with a 400.
++    if ('input_schema' in tool && tool.strict === true) {
++      tool.input_schema = toStrictToolInputSchema(tool.input_schema);
++    }
+     log('converted tool: %O', tool);
+ 
+     finalTools = [tool];
+diff --git a/packages/model-runtime/src/core/anthropicCompatibleFactory/strictToolSchema.test.ts b/packages/model-runtime/src/core/anthropicCompatibleFactory/strictToolSchema.test.ts
+new file mode 100644
+index 0000000000..378d90dc21
+--- /dev/null
++++ b/packages/model-runtime/src/core/anthropicCompatibleFactory/strictToolSchema.test.ts
+@@ -0,0 +1,105 @@
++// @vitest-environment node
++import { describe, expect, it } from 'vitest';
++
++import { buildAnthropicGenerateObjectRequest } from './generateObject';
++import { toStrictToolInputSchema } from './strictToolSchema';
++
++// Shape of the self-evolution "new direction" draft schema that Opus 5.5 rejected with
++// `tools.0.custom: For 'array' type, property 'maxItems' is not supported`.
++const draftSchema = {
++  additionalProperties: false,
++  properties: {
++    layerSource: { enum: ['canonical', 'invented'], type: 'string' },
++    layers: {
++      items: {
++        additionalProperties: false,
++        properties: { key: { type: 'string' }, title: { maxLength: 40, type: 'string' } },
++        required: ['key', 'title'],
++        type: 'object',
++      },
++      maxItems: 6,
++      type: 'array',
++    },
++    outOfScope: { type: ['string', 'null'] },
++    title: { maxLength: 80, type: 'string' },
++  },
++  required: ['layerSource', 'layers', 'outOfScope', 'title'],
++  type: 'object',
++} as const;
++
++const collectKeys = (value: unknown, keys = new Set<string>()): Set<string> => {
++  if (Array.isArray(value)) value.forEach((item) => collectKeys(item, keys));
++  else if (value && typeof value === 'object') {
++    for (const [key, child] of Object.entries(value)) {
++      keys.add(key);
++      collectKeys(child, keys);
++    }
++  }
++  return keys;
++};
++
++describe('toStrictToolInputSchema', () => {
++  it('drops limits strict mode rejects and keeps them as a description hint', () => {
++    const result = toStrictToolInputSchema(draftSchema) as any;
++
++    expect(collectKeys(result).has('maxItems')).toBe(false);
++    expect(collectKeys(result).has('maxLength')).toBe(false);
++    expect(result.properties.layers.description).toBe('{maxItems: 6}');
++    expect(result.properties.title).toEqual({ description: '{maxLength: 80}', type: 'string' });
++    expect(result.properties.layers.items.properties.title.description).toBe('{maxLength: 40}');
++  });
++
++  it('keeps supported keywords and does not mutate the input', () => {
++    const result = toStrictToolInputSchema(draftSchema) as any;
++
++    expect(result.properties.layerSource).toEqual(draftSchema.properties.layerSource);
++    expect(result.properties.outOfScope).toEqual({ type: ['string', 'null'] });
++    expect(result.required).toEqual(draftSchema.required);
++    expect(result.additionalProperties).toBe(false);
++    expect(draftSchema.properties.layers.maxItems).toBe(6);
++  });
++
++  it('keeps minItems 0 or 1 and drops larger values', () => {
++    expect(toStrictToolInputSchema({ minItems: 1, type: 'array' })).toEqual({
++      minItems: 1,
++      type: 'array',
++    });
++    expect(toStrictToolInputSchema({ minItems: 3, type: 'array' })).toEqual({
++      description: '{minItems: 3}',
++      type: 'array',
++    });
++  });
++
++  it('does not treat property names as keywords', () => {
++    const schema = { properties: { maximum: { type: 'number' } }, type: 'object' };
++    expect(toStrictToolInputSchema(schema)).toEqual(schema);
++  });
++});
++
++describe('Anthropic generateObject with strict schema tools', () => {
++  const payload = {
++    messages: [{ content: 'Draft a direction', role: 'user' as const }],
++    schema: { name: 'expertise_domain_draft', schema: draftSchema },
++  };
++
++  it('sends a schema without unsupported limits on models that reject forced tool use', async () => {
++    const { requestParams } = await buildAnthropicGenerateObjectRequest({
++      ...payload,
++      model: 'claude-opus-5-5',
++    } as any);
++    const tool = requestParams.tools?.[0] as any;
++
++    expect(tool.strict).toBe(true);
++    expect(collectKeys(tool.input_schema).has('maxItems')).toBe(false);
++    expect(collectKeys(tool.input_schema).has('maxLength')).toBe(false);
++  });
++
++  it('leaves the schema untouched when strict mode is not used', async () => {
++    const { requestParams } = await buildAnthropicGenerateObjectRequest({
++      ...payload,
++      model: 'claude-opus-5',
++    } as any);
++
++    expect((requestParams.tools?.[0] as any).input_schema).toEqual(draftSchema);
++  });
++});
+diff --git a/packages/model-runtime/src/core/anthropicCompatibleFactory/strictToolSchema.ts b/packages/model-runtime/src/core/anthropicCompatibleFactory/strictToolSchema.ts
+new file mode 100644
+index 0000000000..fb1722b5ea
+--- /dev/null
++++ b/packages/model-runtime/src/core/anthropicCompatibleFactory/strictToolSchema.ts
+@@ -0,0 +1,71 @@
++/**
++ * Strict tool use (`strict: true`) compiles the input schema into a grammar and rejects keywords
++ * it cannot enforce with a 400, for example
++ * `tools.0.custom: For 'array' type, property 'maxItems' is not supported`.
++ * Schemas written for OpenAI-style structured output routinely carry such limits, so drop them
++ * before sending and keep them as a hint in the description, like the official SDK helper does.
++ * Callers still validate the result against their own schema afterwards.
++ * @see https://platform.claude.com/docs/en/build-with-claude/structured-outputs#json-schema-limitations
++ */
++const UNSUPPORTED_KEYWORDS = [
++  'exclusiveMaximum',
++  'exclusiveMinimum',
++  'maxItems',
++  'maxLength',
++  'maxProperties',
++  'maximum',
++  'minLength',
++  'minProperties',
++  'minimum',
++  'multipleOf',
++  'uniqueItems',
++] as const;
++
++const SCHEMA_MAP_KEYWORDS = ['$defs', 'definitions', 'properties'] as const;
++const SCHEMA_LIST_KEYWORDS = ['allOf', 'anyOf', 'oneOf', 'prefixItems'] as const;
++
++type JsonSchema = Record<string, unknown>;
++
++const isSchema = (value: unknown): value is JsonSchema =>
++  !!value && typeof value === 'object' && !Array.isArray(value);
++
++export const toStrictToolInputSchema = <T>(schema: T): T => {
++  if (!isSchema(schema)) return schema;
++
++  const result: JsonSchema = { ...schema };
++  const dropped: string[] = [];
++
++  for (const keyword of UNSUPPORTED_KEYWORDS) {
++    if (!(keyword in result)) continue;
++    dropped.push(`${keyword}: ${JSON.stringify(result[keyword])}`);
++    delete result[keyword];
++  }
++  // Only minItems of 0 or 1 is accepted.
++  if (typeof result.minItems === 'number' && result.minItems > 1) {
++    dropped.push(`minItems: ${result.minItems}`);
++    delete result.minItems;
++  }
++
++  for (const keyword of SCHEMA_MAP_KEYWORDS) {
++    const map = result[keyword];
++    if (!isSchema(map)) continue;
++    result[keyword] = Object.fromEntries(
++      Object.entries(map).map(([key, value]) => [key, toStrictToolInputSchema(value)]),
++    );
++  }
++  for (const keyword of SCHEMA_LIST_KEYWORDS) {
++    const list = result[keyword];
++    if (Array.isArray(list)) result[keyword] = list.map((value) => toStrictToolInputSchema(value));
++  }
++  if (isSchema(result.items)) result.items = toStrictToolInputSchema(result.items);
++
++  if (dropped.length > 0) {
++    const hint = `{${dropped.join(', ')}}`;
++    result.description =
++      typeof result.description === 'string' && result.description
++        ? `${result.description}\n\n${hint}`
++        : hint;
++  }
++
++  return result as T;
 +};
