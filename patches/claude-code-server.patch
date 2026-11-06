@@ -8953,7 +8953,7 @@ new file mode 100644
 index 00000000..cbebf73c
 --- /dev/null
 +++ b/apps/server/src/services/claudeCode/toolBridge.test.ts
-@@ -0,0 +1,278 @@
+@@ -0,0 +1,274 @@
 +// @vitest-environment node
 +import { beforeEach, describe, expect, it, vi } from 'vitest';
 +
@@ -9161,17 +9161,13 @@ index 00000000..cbebf73c
 +    expect(mocks.execute).not.toHaveBeenCalled();
 +  });
 +
-+  it('asks before acting on the owner computer even when the policy would auto-approve', async () => {
++  it('lets the composer approval mode decide for owner computer tools', async () => {
 +    const local = run();
 +    local.preparedRequest.request.tools[0].identifier = 'lobe-local-system';
 +    mocks.getRun.mockImplementation(async () => local);
-+    mocks.wait.mockResolvedValue({ cancelled: true });
-+    expect(await executeClaudeCodeTool(params)).toMatchObject({
-+      result: { isError: true },
-+      status: 'completed',
-+    });
-+    expect(mocks.wait).toHaveBeenCalledTimes(1);
-+    expect(mocks.execute).not.toHaveBeenCalled();
++    await executeClaudeCodeTool(params);
++    expect(mocks.wait).not.toHaveBeenCalled();
++    expect(mocks.execute).toHaveBeenCalledOnce();
 +  });
 +
 +  it('fails closed on cancelled permission or display labels instead of the stable consent ID', async () => {
@@ -9237,7 +9233,7 @@ new file mode 100644
 index 00000000..1cf87c02
 --- /dev/null
 +++ b/apps/server/src/services/claudeCode/toolBridge.ts
-@@ -0,0 +1,282 @@
+@@ -0,0 +1,281 @@
 +import type { AgentState, GeneralChatAgent, ToolRunResult } from '@lobechat/agent-runtime';
 +import { callTool } from '@lobechat/agent-runtime';
 +import type {
@@ -9254,7 +9250,6 @@ index 00000000..1cf87c02
 +import { createStreamEventManager } from '@/server/modules/AgentRuntime/factory';
 +import { AgentRuntimeService } from '@/server/services/agentRuntime';
 +
-+import { CLAUDE_CODE_DEVICE_TOOLS } from './deviceTools';
 +import type { ClaudeCodeBridgeScope } from './interventionBridge';
 +import { waitClaudeCodeIntervention } from './interventionBridge';
 +import { ensureClaudeCodeToolMessage, findClaudeCodeToolMessage } from './messageScope';
@@ -9404,8 +9399,8 @@ index 00000000..1cf87c02
 +    if (typeof policy.checkInterventionNeeded !== 'function')
 +      throw new Error('Tool approval policy is unavailable');
 +    const [needsApproval] = await policy.checkInterventionNeeded([tool], state);
-+    // The composer's auto-approve mode does not extend to the owner's computer.
-+    if (needsApproval.length > 0 || CLAUDE_CODE_DEVICE_TOOLS.includes(tool.identifier)) {
++    // Device tools follow the composer's approval mode like every other tool.
++    if (needsApproval.length > 0) {
 +      const question = `Allow ${tool.identifier}/${tool.apiName}?\n${JSON.stringify(args, null, 2).slice(0, 3000)}`;
 +      const answer = await waitClaudeCodeIntervention({
 +        db,
