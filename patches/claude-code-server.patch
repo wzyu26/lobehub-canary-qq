@@ -15214,3 +15214,173 @@ index 0000000000..fb1722b5ea
 +
 +  return result as T;
 +};
+diff --git a/packages/database/src/models/__tests__/user.memoryExtractorCursor.test.ts b/packages/database/src/models/__tests__/user.memoryExtractorCursor.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..d1f2fe60f718253aa000d2e1ffd7925fddd6531d
+--- /dev/null
++++ b/packages/database/src/models/__tests__/user.memoryExtractorCursor.test.ts
+@@ -0,0 +1,84 @@
++import { sql } from 'drizzle-orm';
++import { beforeEach, describe, expect, it } from 'vitest';
++
++import { getTestDB } from '../../core/getTestDB';
++import { messages, topics, users } from '../../schemas';
++import type { LobeChatDatabase } from '../../type';
++import { UserModel } from '../user';
++
++const serverDB: LobeChatDatabase = await getTestDB();
++
++// Postgres keeps microseconds; a cursor built from a returned row is a JS Date, which keeps only
++// milliseconds. These rows sit inside one millisecond on purpose.
++const insertMicrosecondUsers = async (ids: string[]) => {
++  await serverDB.delete(users);
++  for (const [index, id] of ids.entries()) {
++    await serverDB.insert(users).values({ id });
++    await serverDB.execute(
++      sql`UPDATE ${users} SET created_at = ${`2025-05-12T22:25:44.64952${index}Z`}::timestamptz WHERE id = ${id}`,
++    );
++  }
++};
++
++describe('UserModel memory extractor cursor precision', () => {
++  beforeEach(async () => {
++    await serverDB.delete(users);
++  });
++
++  it('does not return the cursor row again when created_at has microseconds', async () => {
++    await insertMicrosecondUsers(['user-a']);
++
++    const page1 = await UserModel.listUsersForMemoryExtractor(serverDB, { limit: 1 });
++    expect(page1.map((u) => u.id)).toEqual(['user-a']);
++
++    const page2 = await UserModel.listUsersForMemoryExtractor(serverDB, {
++      cursor: { createdAt: page1[0].createdAt, id: page1[0].id },
++      limit: 10,
++    });
++    expect(page2).toEqual([]);
++  });
++
++  it('ends the hourly pagination after the last user instead of repeating it', async () => {
++    await insertMicrosecondUsers(['user-a']);
++    await serverDB.insert(topics).values({ id: 'topic-a', userId: 'user-a' });
++    await serverDB
++      .insert(messages)
++      .values({ id: 'msg-a', role: 'user', topicId: 'topic-a', userId: 'user-a' });
++
++    const page1 = await UserModel.listUsersForHourlyMemoryExtractor(serverDB, { limit: 200 });
++    expect(page1.map((u) => u.id)).toEqual(['user-a']);
++
++    const page2 = await UserModel.listUsersForHourlyMemoryExtractor(serverDB, {
++      cursor: { createdAt: page1[0].createdAt, id: page1[0].id },
++      limit: 200,
++    });
++    expect(page2).toEqual([]);
++  });
++
++  it('accepts a cursor whose createdAt crossed a workflow boundary as an ISO string', async () => {
++    await insertMicrosecondUsers(['user-a']);
++
++    const page1 = await UserModel.listUsersForMemoryExtractor(serverDB, { limit: 1 });
++    const cursor = {
++      createdAt: new Date(page1[0].createdAt).toISOString() as unknown as Date,
++      id: page1[0].id,
++    };
++
++    expect(await UserModel.listUsersForMemoryExtractor(serverDB, { cursor })).toEqual([]);
++  });
++
++  it('pages through users inside the same millisecond by id without skipping any', async () => {
++    await insertMicrosecondUsers(['user-c', 'user-a', 'user-b']);
++
++    const seen: string[] = [];
++    let cursor: { createdAt: Date; id: string } | undefined;
++    for (let page = 0; page < 5; page++) {
++      const rows = await UserModel.listUsersForMemoryExtractor(serverDB, { cursor, limit: 1 });
++      if (rows.length === 0) break;
++      seen.push(...rows.map((u) => u.id));
++      cursor = { createdAt: rows.at(-1)!.createdAt, id: rows.at(-1)!.id };
++    }
++
++    expect(seen).toEqual(['user-a', 'user-b', 'user-c']);
++  });
++});
+diff --git a/packages/database/src/models/user.ts b/packages/database/src/models/user.ts
+index e896bdbbd75de681a7d199825b22848ca9a2b410..9ff1ec9a730fd779ef2ef375879d15dbc88c04b6 100644
+--- a/packages/database/src/models/user.ts
++++ b/packages/database/src/models/user.ts
+@@ -87,6 +87,29 @@ interface LastActiveAtTransition {
+   userCreatedAt: Date;
+ }
+ 
++/**
++ * `users.created_at` truncated to the millisecond.
++ *
++ * NOTICE: Postgres keeps microseconds, but a pagination cursor travels as a JS `Date`, which keeps
++ * only milliseconds. Comparing the raw column with such a cursor makes `created_at > cursor` true
++ * for the very row the cursor came from (12:00:00.649520 > 12:00:00.649), so the next page returns
++ * the same user again and the hourly memory workflow re-schedules itself without end. Ordering and
++ * comparing on the truncated value keeps the rows and the cursor in one precision.
++ */
++const userCreatedAtMs = sql<Date>`date_trunc('milliseconds', ${users.createdAt})`;
++
++const userCursorCondition = (cursor?: ListUsersForMemoryExtractorCursor) => {
++  if (!cursor) return undefined;
++
++  // The cursor may have crossed a workflow step boundary, where a `Date` arrives as an ISO string.
++  const createdAt = new Date(cursor.createdAt).toISOString();
++
++  return or(
++    sql`${userCreatedAtMs} > ${createdAt}::timestamptz`,
++    and(sql`${userCreatedAtMs} = ${createdAt}::timestamptz`, gt(users.id, cursor.id)),
++  );
++};
++
+ export class UserModel {
+   private userId: string;
+   private db: LobeChatDatabase;
+@@ -894,12 +917,7 @@ export class UserModel {
+     db: LobeChatDatabase,
+     options: ListUsersForMemoryExtractorOptions = {},
+   ) => {
+-    const cursorCondition = options.cursor
+-      ? or(
+-          gt(users.createdAt, options.cursor.createdAt),
+-          and(eq(users.createdAt, options.cursor.createdAt), gt(users.id, options.cursor.id)),
+-        )
+-      : undefined;
++    const cursorCondition = userCursorCondition(options.cursor);
+ 
+     const whitelistCondition =
+       options.whitelist && options.whitelist.length > 0
+@@ -911,7 +929,7 @@ export class UserModel {
+     return db.query.users.findMany({
+       columns: { createdAt: true, id: true },
+       limit: options.limit,
+-      orderBy: (fields, { asc }) => [asc(fields.createdAt), asc(fields.id)],
++      orderBy: () => [asc(userCreatedAtMs), asc(users.id)],
+       where,
+     });
+   };
+@@ -920,12 +938,7 @@ export class UserModel {
+     db: LobeChatDatabase,
+     options: ListUsersForHourlyMemoryExtractorOptions = {},
+   ) => {
+-    const cursorCondition = options.cursor
+-      ? or(
+-          gt(users.createdAt, options.cursor.createdAt),
+-          and(eq(users.createdAt, options.cursor.createdAt), gt(users.id, options.cursor.id)),
+-        )
+-      : undefined;
++    const cursorCondition = userCursorCondition(options.cursor);
+ 
+     const whitelistCondition =
+       options.whitelist && options.whitelist.length > 0
+@@ -957,7 +970,7 @@ export class UserModel {
+       .where(
+         and(cursorCondition, whitelistCondition, memoryEnabledCondition, hasChattedTopicCondition),
+       )
+-      .orderBy(asc(users.createdAt), asc(users.id));
++      .orderBy(asc(userCreatedAtMs), asc(users.id));
+ 
+     return options.limit !== undefined ? query.limit(options.limit) : query;
+   };

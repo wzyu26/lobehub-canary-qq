@@ -5,7 +5,7 @@
   "productionQqPatch": "18187-8d48bcdbd746aa036f0fde9f1ba934cc8ac26a14",
   "localQqBaseline": "edfe0138f7abf04aafef2b26d517aaa3e4850228",
   "sourceRevision": "rebased-2026-11-06 onto upstream 676875e7 (laptop source/ is stale; rebuild source from this patch before editing)",
-  "patchSha256": "b7bf62ffa9829f4c3be217a69fd324f26c41ec97dfd5a6bbde279e9644e7ef55",
+  "patchSha256": "7dc1fa73479f4bbae8788adaceb5d74a169219829318a5068f195d5e5659e683",
   "officialClaudeCode": "2.1.301",
   "featureFlag": "CLAUDE_CODE_SERVER_ENABLED",
   "defaultEnabled": false,
