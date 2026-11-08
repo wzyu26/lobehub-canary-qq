@@ -13455,10 +13455,10 @@ index 8742520b066df63766981cf1c83d720e37224c4a..a39b9b0b298ca9322bde454accc439fa
    type BuildClaudeCodeDirectEnvInput,
 diff --git a/packages/heterogeneous-agents/src/spawn/spawnAgent.assistant.test.ts b/packages/heterogeneous-agents/src/spawn/spawnAgent.assistant.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..586bc674253eb5368589e807636437c1a284a788
+index 0000000000000000000000000000000000000000..8e92ff610a31cba4a2febd2de2c6c8e4546499b6
 --- /dev/null
 +++ b/packages/heterogeneous-agents/src/spawn/spawnAgent.assistant.test.ts
-@@ -0,0 +1,152 @@
+@@ -0,0 +1,157 @@
 +import type { ChildProcess, SpawnOptions } from 'node:child_process';
 +import * as childProcess from 'node:child_process';
 +import { EventEmitter } from 'node:events';
@@ -13467,6 +13467,7 @@ index 0000000000000000000000000000000000000000..586bc674253eb5368589e807636437c1
 +
 +import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 +
++import { getHeterogeneousAgentPresetEnv } from './presetEnv';
 +import { spawnAgent, type SpawnAgentOptions } from './spawnAgent';
 +
 +vi.mock('node:child_process', async (importOriginal) => ({
@@ -13585,7 +13586,11 @@ index 0000000000000000000000000000000000000000..586bc674253eb5368589e807636437c1
 +      inheritEnv: false,
 +      integrationMode: undefined,
 +    });
-+    expect(result.env).toEqual({ MCP_CONNECTION_NONBLOCKING: 'false', PATH: '/usr/bin' });
++    // Only the host preset survives, not the inherited environment.
++    expect(result.env).toEqual({
++      ...getHeterogeneousAgentPresetEnv('claude-code'),
++      PATH: '/usr/bin',
++    });
 +  });
 +
 +  it('preserves resume for the existing Claude Code entry', async () => {
