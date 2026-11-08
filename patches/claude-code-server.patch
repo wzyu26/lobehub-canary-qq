@@ -15384,3 +15384,214 @@ index e896bdbbd75de681a7d199825b22848ca9a2b410..9ff1ec9a730fd779ef2ef375879d15db
  
      return options.limit !== undefined ? query.limit(options.limit) : query;
    };
+diff --git a/packages/database/src/models/__tests__/topics/topic.channelVisibility.test.ts b/packages/database/src/models/__tests__/topics/topic.channelVisibility.test.ts
+index b47f7da93c86451b6b9aaf020e0a72271bfac573..cd5ca948960500250322816b01aa09eafb54e4f9 100644
+--- a/packages/database/src/models/__tests__/topics/topic.channelVisibility.test.ts
++++ b/packages/database/src/models/__tests__/topics/topic.channelVisibility.test.ts
+@@ -66,6 +66,8 @@ describe('TopicModel - Channel run topics', () => {
+         {
+           agentId,
+           content: 'launch checklist draft',
++          // Settled conversation: memory extraction skips topics with very recent messages.
++          createdAt: new Date(Date.now() - 3 * 60 * 60 * 1000),
+           id: 'regular-message',
+           role: 'user',
+           topicId: 'regular-topic',
+diff --git a/packages/database/src/models/__tests__/topics/topic.memoryExtractorOrder.test.ts b/packages/database/src/models/__tests__/topics/topic.memoryExtractorOrder.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..a7e5c02e8fadd3ec1bdb87be828b950ae705fdc1
+--- /dev/null
++++ b/packages/database/src/models/__tests__/topics/topic.memoryExtractorOrder.test.ts
+@@ -0,0 +1,75 @@
++import { sql } from 'drizzle-orm';
++import { afterEach, beforeEach, describe, expect, it } from 'vitest';
++
++import { getTestDB } from '../../../core/getTestDB';
++import { messages, topics, users } from '../../../schemas';
++import type { LobeChatDatabase } from '../../../type';
++import { TopicModel } from '../../topic';
++
++const userId = 'topic-memory-extractor-order-user';
++const serverDB: LobeChatDatabase = await getTestDB();
++const topicModel = new TopicModel(serverDB, userId);
++
++const hoursAgo = (hours: number) => new Date(Date.now() - hours * 60 * 60 * 1000);
++
++describe('TopicModel - listTopicsForMemoryExtractor order', () => {
++  beforeEach(async () => {
++    await serverDB.delete(users);
++    await serverDB.insert(users).values({ id: userId });
++  });
++
++  afterEach(async () => {
++    await serverDB.delete(users);
++  });
++
++  it('returns the newest settled topics first', async () => {
++    await serverDB.insert(topics).values([
++      { createdAt: new Date('2025-01-01'), id: 'old', userId },
++      { createdAt: new Date('2026-01-01'), id: 'newer', userId },
++      { createdAt: new Date('2025-06-01'), id: 'middle', userId },
++    ]);
++
++    const result = await topicModel.listTopicsForMemoryExtractor({ limit: 2 });
++
++    expect(result.map((t) => t.id)).toEqual(['newer', 'middle']);
++  });
++
++  it('pages backwards with the cursor without repeating or skipping topics', async () => {
++    await serverDB.insert(topics).values([
++      { createdAt: new Date('2025-01-01'), id: 't1', userId },
++      { createdAt: new Date('2025-02-01'), id: 't2', userId },
++      { createdAt: new Date('2025-03-01'), id: 't3', userId },
++    ]);
++    // Same millisecond, different microseconds: the cursor only carries milliseconds.
++    await serverDB.execute(
++      sql`UPDATE ${topics} SET created_at = '2025-03-01T00:00:00.000500Z'::timestamptz WHERE id = 't3'`,
++    );
++
++    const seen: string[] = [];
++    let cursor: { createdAt: Date; id: string } | undefined;
++    for (let page = 0; page < 5; page++) {
++      const rows = await topicModel.listTopicsForMemoryExtractor({ cursor, limit: 1 });
++      if (rows.length === 0) break;
++      seen.push(...rows.map((t) => t.id));
++      cursor = { createdAt: rows.at(-1)!.createdAt, id: rows.at(-1)!.id };
++    }
++
++    expect(seen).toEqual(['t3', 't2', 't1']);
++  });
++
++  it('skips a conversation that is still in progress', async () => {
++    await serverDB.insert(topics).values([
++      { createdAt: hoursAgo(5), id: 'active', userId },
++      { createdAt: hoursAgo(6), id: 'settled', userId },
++    ]);
++    await serverDB.insert(messages).values([
++      { createdAt: hoursAgo(5), id: 'm-active-old', role: 'user', topicId: 'active', userId },
++      { createdAt: hoursAgo(0.1), id: 'm-active-new', role: 'user', topicId: 'active', userId },
++      { createdAt: hoursAgo(6), id: 'm-settled', role: 'user', topicId: 'settled', userId },
++    ]);
++
++    const result = await topicModel.listTopicsForMemoryExtractor();
++
++    expect(result.map((t) => t.id)).toEqual(['settled']);
++  });
++});
+diff --git a/packages/database/src/models/__tests__/topics/topic.query.test.ts b/packages/database/src/models/__tests__/topics/topic.query.test.ts
+index 1c841a898040cbdc347b59fe11df641837075f83..1cbcd509122da663ca29c80eb251a5e363b2844e 100644
+--- a/packages/database/src/models/__tests__/topics/topic.query.test.ts
++++ b/packages/database/src/models/__tests__/topics/topic.query.test.ts
+@@ -2337,16 +2337,16 @@ describe('TopicModel - Query', () => {
+         { createdAt: new Date('2024-01-04T00:00:00Z'), id: 't4', userId: userId2 },
+       ] satisfies Array<typeof topics.$inferInsert>);
+ 
+-      // t1 is skipped because it has userMemoryExtractStatus: 'completed'
++      // Newest first. t1 is skipped because it has userMemoryExtractStatus: 'completed';
+       // t4 is skipped because it belongs to a different user
+       const page1 = await topicModel.listTopicsForMemoryExtractor({ limit: 1 });
+-      expect(page1.map((t) => t.id)).toEqual(['t2']);
++      expect(page1.map((t) => t.id)).toEqual(['t3']);
+ 
+       const page2 = await topicModel.listTopicsForMemoryExtractor({
+         cursor: { createdAt: page1[0].createdAt, id: page1[0].id },
+         limit: 5,
+       });
+-      expect(page2.map((t) => t.id)).toEqual(['t3']);
++      expect(page2.map((t) => t.id)).toEqual(['t2']);
+     });
+ 
+     it('should include extracted topics when ignoreExtracted is true', async () => {
+@@ -2365,10 +2365,10 @@ describe('TopicModel - Query', () => {
+         limit: 10,
+       });
+ 
+-      expect(rows.map((t) => t.id)).toEqual(['et1', 'et2']);
++      expect(rows.map((t) => t.id)).toEqual(['et2', 'et1']);
+     });
+ 
+-    it('should paginate forward from the cursor, excluding items at or before it and including later ones', async () => {
++    it('should paginate backwards from the cursor, excluding items at or after it and including earlier ones', async () => {
+       const createdAt = new Date('2025-01-20T18:43:33.603Z');
+ 
+       await serverDB.insert(topics).values([
+@@ -2391,7 +2391,7 @@ describe('TopicModel - Query', () => {
+         limit: 10,
+       });
+ 
+-      expect(rows.map((t) => t.id)).toEqual(['cursor-topic-z', 'after-1', 'after-2']);
++      expect(rows.map((t) => t.id)).toEqual(['before-same-timestamp', 'before-old']);
+     });
+   });
+ 
+diff --git a/packages/database/src/models/topic/memoryExtractor.ts b/packages/database/src/models/topic/memoryExtractor.ts
+index 4d4a13e74355361ac68acd573587a00b36b4d6c9..a3c5ceacf26dc2054b4bc37bef16b4972387d79b 100644
+--- a/packages/database/src/models/topic/memoryExtractor.ts
++++ b/packages/database/src/models/topic/memoryExtractor.ts
+@@ -1,10 +1,15 @@
+-import { and, count, eq, gt, gte, lte, ne, or, sql } from 'drizzle-orm';
++import { and, count, desc, eq, gte, lt, lte, ne, or, sql } from 'drizzle-orm';
+ 
+-import { topics } from '../../schemas';
++import { messages, topics } from '../../schemas';
+ import { notChannelTopic } from '../../utils/topicVisibility';
+ import type { TopicModelContext } from './context';
+ import type { ListTopicsForMemoryExtractorCursor } from './types';
+ 
++/** A topic with a message newer than this is still in progress and waits for a later run. */
++const TOPIC_SETTLE_MINUTES = 120;
++
++const topicCreatedAtMs = sql<Date>`date_trunc('milliseconds', ${topics.createdAt})`;
++
+ export const listTopicsForMemoryExtractor = async (
+   ctx: TopicModelContext,
+   options: {
+@@ -15,12 +20,21 @@ export const listTopicsForMemoryExtractor = async (
+     startDate?: Date;
+   } = {},
+ ) => {
++  // Newest first, so a recent conversation reaches memory within one run instead of waiting
++  // behind the whole backlog. Compared at millisecond precision because the cursor comes back
++  // from a workflow step as a JS Date, while Postgres keeps microseconds.
++  const cursorCreatedAt = options.cursor
++    ? new Date(options.cursor.createdAt).toISOString()
++    : undefined;
+   const cursorCondition = options.cursor
+     ? and(
+         ne(topics.id, options.cursor.id),
+         or(
+-          gt(topics.createdAt, options.cursor.createdAt),
+-          and(eq(topics.createdAt, options.cursor.createdAt), gt(topics.id, options.cursor.id)),
++          sql`${topicCreatedAtMs} < ${cursorCreatedAt}::timestamptz`,
++          and(
++            sql`${topicCreatedAtMs} = ${cursorCreatedAt}::timestamptz`,
++            lt(topics.id, options.cursor.id),
++          ),
+         ),
+       )
+     : undefined;
+@@ -33,7 +47,7 @@ export const listTopicsForMemoryExtractor = async (
+       userId: true,
+     },
+     limit: options.limit,
+-    orderBy: (fields, { asc }) => [asc(fields.createdAt), asc(fields.id)],
++    orderBy: () => [desc(topicCreatedAtMs), desc(topics.id)],
+     where: and(
+       ctx.ownership(),
+       // Share-visitor conversations are not the creator's own speech — never
+@@ -49,6 +63,15 @@ export const listTopicsForMemoryExtractor = async (
+           // expression crashes the production engine (see the note on the class).
+           // A null `metadata` extracts to '' here too, so this covers it.
+           sql`COALESCE(${topics.metadata}->>'userMemoryExtractStatus', '') <> 'completed'`,
++      // A completed topic is never extracted again, so skip conversations still in progress:
++      // otherwise newest-first would extract a chat mid-way and drop everything said after.
++      // NOTICE: Qualified by hand. Inside a relational query drizzle renders columns unqualified,
++      // and an unqualified `id` in this subquery would bind to the message, not the topic.
++      sql`NOT EXISTS (
++        SELECT 1 FROM ${messages} AS recent_message
++        WHERE recent_message.topic_id = ${sql.raw('"topics"."id"')}
++          AND recent_message.created_at > now() - ${`${TOPIC_SETTLE_MINUTES} minutes`}::interval
++      )`,
+       cursorCondition,
+     ),
+   });
