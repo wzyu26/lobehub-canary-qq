@@ -4532,10 +4532,10 @@ index c9074d8715e93fa133eab5c7d9b1e00f8636a97e..2cdbd415939924ded42c817f62d5b64f
  /**
 diff --git a/apps/server/src/services/agentRuntime/CompletionLifecycle/index.backgroundDb.test.ts b/apps/server/src/services/agentRuntime/CompletionLifecycle/index.backgroundDb.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..29ae118339e76b5c3a26d1afa96f6ba2ba4528a8
+index 0000000000000000000000000000000000000000..8bc08545bfba5237e16358358edf1fcdf6b82131
 --- /dev/null
 +++ b/apps/server/src/services/agentRuntime/CompletionLifecycle/index.backgroundDb.test.ts
-@@ -0,0 +1,115 @@
+@@ -0,0 +1,120 @@
 +// @vitest-environment node
 +import { beforeEach, describe, expect, it, vi } from 'vitest';
 +
@@ -4552,6 +4552,7 @@ index 0000000000000000000000000000000000000000..29ae118339e76b5c3a26d1afa96f6ba2
 +  registerWorks: vi.fn(),
 +  releaseRound: vi.fn(),
 +  settleRepair: vi.fn(),
++  settleThread: vi.fn(),
 +  verify: vi.fn(),
 +  verifyLookup: vi.fn(),
 +}));
@@ -4583,7 +4584,10 @@ index 0000000000000000000000000000000000000000..29ae118339e76b5c3a26d1afa96f6ba2
 +  CriticalHookDeliveryError: class extends Error {},
 +  hookDispatcher: { dispatch: vi.fn(), unregister: vi.fn() },
 +}));
-+vi.mock('./persistence', () => ({ persistCompletion: mocks.persist }));
++vi.mock('./persistence', () => ({
++  persistCompletion: mocks.persist,
++  settleRunThread: mocks.settleThread,
++}));
 +vi.mock('./recall', () => ({ recallUserOnCompletion: mocks.recall }));
 +vi.mock('./fileWorks', () => ({ registerFileWorks: mocks.registerWorks }));
 +
@@ -4615,6 +4619,7 @@ index 0000000000000000000000000000000000000000..29ae118339e76b5c3a26d1afa96f6ba2
 +      );
 +      await lifecycle.dispatchHooks('run', state, 'done');
 +      expect(mocks.persist.mock.calls[0][0].serverDB).toBe(transaction);
++      expect(mocks.settleThread.mock.calls[0][0].serverDB).toBe(transaction);
 +      expect(mocks.verifyLookup).toHaveBeenCalledWith(transaction, 'run');
 +      expect(mocks.registerWorks.mock.calls[0][0].serverDB).toBe(transaction);
 +      const recallDeps = mocks.recall.mock.calls[0][0];
