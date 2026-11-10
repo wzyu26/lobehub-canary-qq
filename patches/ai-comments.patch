@@ -1,6 +1,6 @@
 diff --git a/apps/server/src/routers/lambda/documentAiComment.ts b/apps/server/src/routers/lambda/documentAiComment.ts
 new file mode 100644
-index 00000000..d9c8f162
+index 0000000000000000000000000000000000000000..d9c8f162d06ce30b845eaaed69ce7f55c874b9e6
 --- /dev/null
 +++ b/apps/server/src/routers/lambda/documentAiComment.ts
 @@ -0,0 +1,79 @@
@@ -84,10 +84,10 @@ index 00000000..d9c8f162
 +    }),
 +});
 diff --git a/apps/server/src/routers/lambda/index.ts b/apps/server/src/routers/lambda/index.ts
-index 592ff15c..c3fcfa4b 100644
+index b05008cd6a83e3fafadd108d61f3da84656a4bef..39ca6e8a56ee0ab63bd17582240486d597d1f4a8 100644
 --- a/apps/server/src/routers/lambda/index.ts
 +++ b/apps/server/src/routers/lambda/index.ts
-@@ -61,6 +61,7 @@ import { dashboardRouter } from './dashboard';
+@@ -63,6 +63,7 @@ import { dashboardRouter } from './dashboard';
  import { deviceRouter } from './device';
  import { deviceMetricRouter } from './deviceMetric';
  import { documentRouter } from './document';
@@ -95,7 +95,7 @@ index 592ff15c..c3fcfa4b 100644
  import { documentCommentRouter } from './documentComment';
  import { documentLikeRouter } from './documentLike';
  import { environmentRouter } from './environment';
-@@ -168,6 +169,7 @@ export const lambdaRouter = router({
+@@ -173,6 +174,7 @@ export const lambdaRouter = router({
    device: deviceRouter,
    deviceMetric: deviceMetricRouter,
    document: documentRouter,
@@ -104,10 +104,10 @@ index 592ff15c..c3fcfa4b 100644
    documentLike: documentLikeRouter,
    exporter: exporterRouter,
 diff --git a/locales/en-US/file.json b/locales/en-US/file.json
-index 77f8693b..0e6b8b12 100644
+index ec5e5becd4ea13d4f2ee23404973731114cc901f..1803660eaed8938ff554ded0d4d5ba87cbe1f6cb 100644
 --- a/locales/en-US/file.json
 +++ b/locales/en-US/file.json
-@@ -282,6 +282,25 @@
+@@ -287,6 +287,25 @@
    "pageEditor.agentUnavailable.noGateway": "The Agent can't edit pages until Gateway Mode is on. Ask your admin to turn it on.",
    "pageEditor.agentUnavailable.sandboxUnconfigured": "The Agent can't edit pages until a sandbox is configured. Ask your admin to set one up.",
    "pageEditor.agentUnavailable.viewDocs": "View docs",
@@ -134,10 +134,10 @@ index 77f8693b..0e6b8b12 100644
    "pageEditor.autoSaveMessage": "Your page is saved automatically. No need to save manually.",
    "pageEditor.charLimit.blockedDescription": "Changes are not saved. Shorten the page or upgrade your plan to keep editing.",
 diff --git a/locales/zh-CN/file.json b/locales/zh-CN/file.json
-index 009b2f89..7841bbc9 100644
+index 5cb7daf836ae5566bd1c0493392b292495d24896..7eabfe9122e77a659d4b0ea5fe2f35a94039031f 100644
 --- a/locales/zh-CN/file.json
 +++ b/locales/zh-CN/file.json
-@@ -282,6 +282,25 @@
+@@ -287,6 +287,25 @@
    "pageEditor.agentUnavailable.noGateway": "开启 Gateway 模式后，Agent 才能编辑页面。请联系管理员开启。",
    "pageEditor.agentUnavailable.sandboxUnconfigured": "配置沙箱后，Agent 才能编辑页面。请联系管理员配置。",
    "pageEditor.agentUnavailable.viewDocs": "查看文档",
@@ -165,7 +165,7 @@ index 009b2f89..7841bbc9 100644
    "pageEditor.charLimit.blockedDescription": "改动未保存。请缩短页面内容，或升级套餐后继续编辑。",
 diff --git a/packages/database/src/models/__tests__/documentAiComment.test.ts b/packages/database/src/models/__tests__/documentAiComment.test.ts
 new file mode 100644
-index 00000000..19c0684d
+index 0000000000000000000000000000000000000000..19c0684d157d734bb4c7fb27a5e8843f92186459
 --- /dev/null
 +++ b/packages/database/src/models/__tests__/documentAiComment.test.ts
 @@ -0,0 +1,91 @@
@@ -262,7 +262,7 @@ index 00000000..19c0684d
 +});
 diff --git a/packages/database/src/models/documentAiComment.ts b/packages/database/src/models/documentAiComment.ts
 new file mode 100644
-index 00000000..8b77a462
+index 0000000000000000000000000000000000000000..8b77a4627a05242704abe3c7b8468473c1936f89
 --- /dev/null
 +++ b/packages/database/src/models/documentAiComment.ts
 @@ -0,0 +1,57 @@
@@ -325,7 +325,7 @@ index 00000000..8b77a462
 +}
 diff --git a/packages/database/src/schemas/documentAiComment.ts b/packages/database/src/schemas/documentAiComment.ts
 new file mode 100644
-index 00000000..1136ff37
+index 0000000000000000000000000000000000000000..1136ff37670b5deaa4232f15bb4910988395e107
 --- /dev/null
 +++ b/packages/database/src/schemas/documentAiComment.ts
 @@ -0,0 +1,49 @@
@@ -379,10 +379,10 @@ index 00000000..1136ff37
 +export type DocumentAiCommentItem = typeof documentAiComments.$inferSelect;
 +export type NewDocumentAiComment = typeof documentAiComments.$inferInsert;
 diff --git a/packages/locales/src/default/file.ts b/packages/locales/src/default/file.ts
-index f2df2a4b..cea27634 100644
+index a908dc8cb5fb4ea4b7b9f8fe1661a95654c88ce0..0c3fe09a49064117ee89a927b9c11ad0a6130e82 100644
 --- a/packages/locales/src/default/file.ts
 +++ b/packages/locales/src/default/file.ts
-@@ -331,6 +331,27 @@ export default {
+@@ -336,6 +336,27 @@ export default {
    'pageEditor.charLimit.overDescription':
      'Changes cannot be saved while the page is over the limit. Shorten the page or upgrade your plan.',
    'pageEditor.chooseIcon': 'Choose Icon',
@@ -407,12 +407,12 @@ index f2df2a4b..cea27634 100644
 +  'pageEditor.aiComments.thinking': 'Thinking…',
 +  'pageEditor.aiComments.title': 'AI comments',
 +  'pageEditor.aiComments.unanswered': 'No answer yet.',
-   'pageEditor.collab.notSynced':
-     'Your latest page edits are still syncing, so the Agent may not see them yet.',
-   'pageEditor.collab.offlineRestore.content':
+   'pageEditor.collab.deleted.description':
+     'It was deleted or moved out of this workspace. Return to the page list to keep working.',
+   'pageEditor.collab.deleted.title': 'This page is no longer available here',
 diff --git a/src/features/PageEditor/AIComments/Composer.tsx b/src/features/PageEditor/AIComments/Composer.tsx
 new file mode 100644
-index 00000000..3d94cc2c
+index 0000000000000000000000000000000000000000..3d94cc2c4bd32bc3dbc77bff550c2f261fe04e0d
 --- /dev/null
 +++ b/src/features/PageEditor/AIComments/Composer.tsx
 @@ -0,0 +1,93 @@
@@ -511,7 +511,7 @@ index 00000000..3d94cc2c
 +export default AskComposer;
 diff --git a/src/features/PageEditor/AIComments/ModelPicker.tsx b/src/features/PageEditor/AIComments/ModelPicker.tsx
 new file mode 100644
-index 00000000..e506da17
+index 0000000000000000000000000000000000000000..e506da17d49efdb66b80668709b4f26b06cd55bc
 --- /dev/null
 +++ b/src/features/PageEditor/AIComments/ModelPicker.tsx
 @@ -0,0 +1,56 @@
@@ -573,7 +573,7 @@ index 00000000..e506da17
 +export default ModelPicker;
 diff --git a/src/features/PageEditor/AIComments/Panel.tsx b/src/features/PageEditor/AIComments/Panel.tsx
 new file mode 100644
-index 00000000..1dfb3db5
+index 0000000000000000000000000000000000000000..1dfb3db5adafc0b61590a0d9205616532de04c3f
 --- /dev/null
 +++ b/src/features/PageEditor/AIComments/Panel.tsx
 @@ -0,0 +1,191 @@
@@ -770,7 +770,7 @@ index 00000000..1dfb3db5
 +export default AICommentsPanel;
 diff --git a/src/features/PageEditor/AIComments/ThreadCard.tsx b/src/features/PageEditor/AIComments/ThreadCard.tsx
 new file mode 100644
-index 00000000..73b8b39c
+index 0000000000000000000000000000000000000000..73b8b39c0634a10df92a1378e101ea93f181ba75
 --- /dev/null
 +++ b/src/features/PageEditor/AIComments/ThreadCard.tsx
 @@ -0,0 +1,124 @@
@@ -900,7 +900,7 @@ index 00000000..73b8b39c
 +export default ThreadCard;
 diff --git a/src/features/PageEditor/AIComments/commentModel.ts b/src/features/PageEditor/AIComments/commentModel.ts
 new file mode 100644
-index 00000000..851afb6c
+index 0000000000000000000000000000000000000000..851afb6c9eb02eb5735b56948742f217123dae75
 --- /dev/null
 +++ b/src/features/PageEditor/AIComments/commentModel.ts
 @@ -0,0 +1,69 @@
@@ -975,7 +975,7 @@ index 00000000..851afb6c
 +};
 diff --git a/src/features/PageEditor/AIComments/context.tsx b/src/features/PageEditor/AIComments/context.tsx
 new file mode 100644
-index 00000000..cd5ef578
+index 0000000000000000000000000000000000000000..cd5ef57879ad41ff2532a4097f24d44d5a88d6c5
 --- /dev/null
 +++ b/src/features/PageEditor/AIComments/context.tsx
 @@ -0,0 +1,68 @@
@@ -1049,7 +1049,7 @@ index 00000000..cd5ef578
 +export const useAIComments = () => use(AICommentsContext);
 diff --git a/src/features/PageEditor/AIComments/prompt.test.ts b/src/features/PageEditor/AIComments/prompt.test.ts
 new file mode 100644
-index 00000000..3e970551
+index 0000000000000000000000000000000000000000..3e9705518399e7ddde93f0e70f3642969bd0e82d
 --- /dev/null
 +++ b/src/features/PageEditor/AIComments/prompt.test.ts
 @@ -0,0 +1,69 @@
@@ -1124,7 +1124,7 @@ index 00000000..3e970551
 +});
 diff --git a/src/features/PageEditor/AIComments/prompt.ts b/src/features/PageEditor/AIComments/prompt.ts
 new file mode 100644
-index 00000000..f2aae0c1
+index 0000000000000000000000000000000000000000..f2aae0c11250f19e6e4545a7944d08f41191ad72
 --- /dev/null
 +++ b/src/features/PageEditor/AIComments/prompt.ts
 @@ -0,0 +1,91 @@
@@ -1221,7 +1221,7 @@ index 00000000..f2aae0c1
 +};
 diff --git a/src/features/PageEditor/AIComments/styles.ts b/src/features/PageEditor/AIComments/styles.ts
 new file mode 100644
-index 00000000..504c26f7
+index 0000000000000000000000000000000000000000..504c26f75e559266aaf882ec644577536be1cab5
 --- /dev/null
 +++ b/src/features/PageEditor/AIComments/styles.ts
 @@ -0,0 +1,16 @@
@@ -1243,7 +1243,7 @@ index 00000000..504c26f7
 +});
 diff --git a/src/features/PageEditor/AIComments/useAICommentsState.test.ts b/src/features/PageEditor/AIComments/useAICommentsState.test.ts
 new file mode 100644
-index 00000000..fd41d608
+index 0000000000000000000000000000000000000000..fd41d6087ac540dd5df96e4e028e2760b9a298e6
 --- /dev/null
 +++ b/src/features/PageEditor/AIComments/useAICommentsState.test.ts
 @@ -0,0 +1,197 @@
@@ -1446,7 +1446,7 @@ index 00000000..fd41d608
 +});
 diff --git a/src/features/PageEditor/AIComments/useAICommentsState.ts b/src/features/PageEditor/AIComments/useAICommentsState.ts
 new file mode 100644
-index 00000000..ac4d980d
+index 0000000000000000000000000000000000000000..ac4d980da427f6f6ebd2b546846f8b2f984e9f44
 --- /dev/null
 +++ b/src/features/PageEditor/AIComments/useAICommentsState.ts
 @@ -0,0 +1,354 @@
@@ -1805,7 +1805,7 @@ index 00000000..ac4d980d
 +
 +export type AICommentsState = ReturnType<typeof useAICommentsState>;
 diff --git a/src/features/PageEditor/Header/index.tsx b/src/features/PageEditor/Header/index.tsx
-index 27018ebd..fff66524 100644
+index 27018ebda643c65c6eea666762b908ae28c81a28..fff66524c817f3fbd5c0065040a8e390a367d666 100644
 --- a/src/features/PageEditor/Header/index.tsx
 +++ b/src/features/PageEditor/Header/index.tsx
 @@ -29,6 +29,7 @@ import NavHeader from '@/features/NavHeader';
@@ -1857,7 +1857,7 @@ index 27018ebd..fff66524 100644
                  />
                )}
 diff --git a/src/features/PageEditor/PageEditor.tsx b/src/features/PageEditor/PageEditor.tsx
-index 6270c508..8cc90710 100644
+index 8aa47a64eeb40d4365a3f06ecfe8fb7d3e4f5179..c13852a459fed50a343e2b758a379b2492be9ecc 100644
 --- a/src/features/PageEditor/PageEditor.tsx
 +++ b/src/features/PageEditor/PageEditor.tsx
 @@ -5,6 +5,7 @@ import { cssVar, Flexbox } from '@lobehub/ui';
@@ -1875,9 +1875,9 @@ index 6270c508..8cc90710 100644
 +import { AICommentsProvider } from './AIComments/context';
 +import AICommentsPanel from './AIComments/Panel';
  import { focusEditorAtBlankPoint } from './blankAreaClick';
+ import CollabBlockedBanner from './collab/CollabBlockedBanner';
  import { usePageCollabEligible, usePageCollabEnabled } from './collab/usePageCollab';
- import DocumentComments from './DocumentComments';
-@@ -144,6 +147,8 @@ interface PageEditorCanvasProps {
+@@ -145,6 +148,8 @@ interface PageEditorCanvasProps {
  const PageEditorCanvas = memo<PageEditorCanvasProps>((props) => {
    const { askCopilotTarget, header, fullWidthHeader, rightPanel } = props;
    const showRightPanel = rightPanel !== false;
@@ -1886,7 +1886,7 @@ index 6270c508..8cc90710 100644
    const editable = usePageEditable();
    const editor = usePageEditorStore((s) => s.editor);
    const documentId = usePageEditorStore((s) => s.documentId);
-@@ -428,14 +433,25 @@ const PageEditorCanvas = memo<PageEditorCanvasProps>((props) => {
+@@ -430,14 +435,25 @@ const PageEditorCanvas = memo<PageEditorCanvasProps>((props) => {
    // Comment state is hosted above every surface that reads it: the header's
    // toggle, the list below the body and the panel beside it share one set of
    // caches, and the panel's cards follow the body pane's scroll.
@@ -1920,7 +1920,7 @@ index 6270c508..8cc90710 100644
    );
  
    if (fullWidthHeader) {
-@@ -444,7 +460,7 @@ const PageEditorCanvas = memo<PageEditorCanvasProps>((props) => {
+@@ -446,7 +462,7 @@ const PageEditorCanvas = memo<PageEditorCanvasProps>((props) => {
          {headerSlot}
          <Flexbox horizontal flex={1} style={{ minHeight: 0 }} width={'100%'}>
            {editorPane}
@@ -1929,7 +1929,7 @@ index 6270c508..8cc90710 100644
            {showRightPanel && <RightPanel />}
          </Flexbox>
        </Flexbox>,
-@@ -459,7 +475,7 @@ const PageEditorCanvas = memo<PageEditorCanvasProps>((props) => {
+@@ -461,7 +477,7 @@ const PageEditorCanvas = memo<PageEditorCanvasProps>((props) => {
        width={'100%'}
      >
        {editorPane}
@@ -1940,7 +1940,7 @@ index 6270c508..8cc90710 100644
    );
 diff --git a/src/services/documentAiComment.ts b/src/services/documentAiComment.ts
 new file mode 100644
-index 00000000..ffa2eb15
+index 0000000000000000000000000000000000000000..ffa2eb15ad10ee36713c9d300c568f032fdbfc45
 --- /dev/null
 +++ b/src/services/documentAiComment.ts
 @@ -0,0 +1,21 @@

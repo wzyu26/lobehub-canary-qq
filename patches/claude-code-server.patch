@@ -3436,10 +3436,10 @@ index 0000000000000000000000000000000000000000..f80f375fcb2319426c6483635fc19a2e
 +  });
 +});
 diff --git a/apps/server/src/modules/AgentRuntime/adapters/ServerToolTransport.ts b/apps/server/src/modules/AgentRuntime/adapters/ServerToolTransport.ts
-index 32948172579f745015d83ef8313434ceafc9ea27..0cc38e459de7b4de1d278e63d5a5b75bc4db64f1 100644
+index cffe899feb4fb26008662e04fd4ed67b389ea784..6d1b7025bafbc9fccb92838f25a1a7adcf4fe152 100644
 --- a/apps/server/src/modules/AgentRuntime/adapters/ServerToolTransport.ts
 +++ b/apps/server/src/modules/AgentRuntime/adapters/ServerToolTransport.ts
-@@ -336,7 +336,7 @@ export class ServerToolTransport implements ToolTransport {
+@@ -340,7 +340,7 @@ export class ServerToolTransport implements ToolTransport {
              }),
            {
              isInterrupted: () => isOperationInterrupted(this.ctx),
@@ -4411,10 +4411,10 @@ index f5f3234d39fd8ec93948ee166505f6fd053ed8b5..fee8bafb64f34c52bfdae57bb6b17bc2
          ? deriveAgentInterventionQueueDeduplicationId(operationId, initialStepCount)
          : undefined;
 diff --git a/apps/server/src/services/agentRuntime/AgentRuntimeService/executeStep/index.ts b/apps/server/src/services/agentRuntime/AgentRuntimeService/executeStep/index.ts
-index 3035c1a96e15ba92fcaed612783b6772eec61569..d7bb54132416482204a672e6616a720d5693e95d 100644
+index f47b30d4ecbeaf257d414a380f2debcfb82b9c7b..00d0f21e41c53cea381777c9dfd8fe7ca99f4f78 100644
 --- a/apps/server/src/services/agentRuntime/AgentRuntimeService/executeStep/index.ts
 +++ b/apps/server/src/services/agentRuntime/AgentRuntimeService/executeStep/index.ts
-@@ -200,6 +200,10 @@ export async function executeStep(
+@@ -201,6 +201,10 @@ export async function executeStep(
        }
        stopRunSlotLease = startRunSlotLease(deps.userId, agentState);
  
@@ -4426,7 +4426,7 @@ index 3035c1a96e15ba92fcaed612783b6772eec61569..d7bb54132416482204a672e6616a720d
        // that init here, after the step claim and before anything is published.
        let deferredInitContext: AgentRuntimeContext | undefined;
 diff --git a/apps/server/src/services/agentRuntime/AgentRuntimeService/index.ts b/apps/server/src/services/agentRuntime/AgentRuntimeService/index.ts
-index 2cab98f3cf45935ee0691633901763ee40eb7c90..924fda4d789325f3cde1848cf67ee0cbc1e66e00 100644
+index 862ec04f53dfb736c525d096bd077cca214cc935..6e855609c8f97765a046589e9697697138d43cbe 100644
 --- a/apps/server/src/services/agentRuntime/AgentRuntimeService/index.ts
 +++ b/apps/server/src/services/agentRuntime/AgentRuntimeService/index.ts
 @@ -615,6 +615,11 @@ export class AgentRuntimeService {
@@ -4518,10 +4518,10 @@ index 5adee6b70dcb17cb3d2ff2dff30f63759c3a0e7e..c21bd9d322ab3d34bb9addb77ca61cea
        ...(params.clientProtocol === 2 && { clientProtocol: 2 as const }),
        ...(params.includeFinalState === true && { includeFinalState: true }),
 diff --git a/apps/server/src/services/agentRuntime/AgentRuntimeService/runtimeFactory.ts b/apps/server/src/services/agentRuntime/AgentRuntimeService/runtimeFactory.ts
-index f57040bb1a8f5e5aac784f97dafbea49246f2edb..39176518469bfade68d86eb5502529d404dddda5 100644
+index c9074d8715e93fa133eab5c7d9b1e00f8636a97e..2cdbd415939924ded42c817f62d5b64f7d92b09f 100644
 --- a/apps/server/src/services/agentRuntime/AgentRuntimeService/runtimeFactory.ts
 +++ b/apps/server/src/services/agentRuntime/AgentRuntimeService/runtimeFactory.ts
-@@ -272,7 +272,7 @@ export async function createAgentRuntime(
+@@ -286,7 +286,7 @@ export async function createAgentRuntime(
      executors: createRuntimeExecutors(executorContext),
    });
  
@@ -4532,10 +4532,10 @@ index f57040bb1a8f5e5aac784f97dafbea49246f2edb..39176518469bfade68d86eb5502529d4
  /**
 diff --git a/apps/server/src/services/agentRuntime/CompletionLifecycle/index.backgroundDb.test.ts b/apps/server/src/services/agentRuntime/CompletionLifecycle/index.backgroundDb.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..0cefe02906355133020605c1d313cc091219bea4
+index 0000000000000000000000000000000000000000..29ae118339e76b5c3a26d1afa96f6ba2ba4528a8
 --- /dev/null
 +++ b/apps/server/src/services/agentRuntime/CompletionLifecycle/index.backgroundDb.test.ts
-@@ -0,0 +1,116 @@
+@@ -0,0 +1,115 @@
 +// @vitest-environment node
 +import { beforeEach, describe, expect, it, vi } from 'vitest';
 +
@@ -4575,7 +4575,7 @@ index 0000000000000000000000000000000000000000..0cefe02906355133020605c1d313cc09
 +vi.mock('@/server/services/verify', () => ({
 +  instantiateVerifyPlanOnStart: mocks.instantiate,
 +  releaseUndeliveredRound: mocks.releaseRound,
-+  runVerifyOnCompletion: mocks.verify,
++  scheduleVerifyOnCompletion: mocks.verify,
 +  settleFailedRepair: mocks.settleRepair,
 +}));
 +vi.mock('@/server/utils/scheduleAfterResponse', () => ({ after: mocks.after }));
@@ -4621,8 +4621,7 @@ index 0000000000000000000000000000000000000000..0cefe02906355133020605c1d313cc09
 +      expect(recallDeps.serverDB).toBe(background);
 +      expect(recallDeps.agentOperationModel.db).toBe(background);
 +      expect(recallDeps.messageModel.db).toBe(background);
-+      expect(mocks.verify).not.toHaveBeenCalled();
-+      for (const [deferred] of mocks.after.mock.calls) await deferred();
++      // Its in-band fallback runs after the response, when the transaction has ended.
 +      expect(mocks.verify).toHaveBeenCalledWith(
 +        background,
 +        'owner',
@@ -4653,7 +4652,7 @@ index 0000000000000000000000000000000000000000..0cefe02906355133020605c1d313cc09
 +  });
 +});
 diff --git a/apps/server/src/services/agentRuntime/CompletionLifecycle/index.ts b/apps/server/src/services/agentRuntime/CompletionLifecycle/index.ts
-index 8364f811aca2076518e9b32be966ec8f5bfb625c..926edb59931fc407a24f47c2b0db7adc9c1cbe93 100644
+index 66e8d2db590277f2d005377307f7752d101b8a07..9b961d5eb04fc9eed873663e5959f5d4287e76d8 100644
 --- a/apps/server/src/services/agentRuntime/CompletionLifecycle/index.ts
 +++ b/apps/server/src/services/agentRuntime/CompletionLifecycle/index.ts
 @@ -89,6 +89,7 @@ export class CompletionLifecycle {
@@ -4715,16 +4714,19 @@ index 8364f811aca2076518e9b32be966ec8f5bfb625c..926edb59931fc407a24f47c2b0db7adc
            this.userId,
            { operationId: params.operationId, taskId: params.taskId },
            this.workspaceId,
-@@ -519,7 +531,7 @@ export class CompletionLifecycle {
-         // the host as post-response work instead (no-op fallback off Next).
-         after(() =>
-           runVerifyOnCompletion(
--            this.serverDB,
-+            this.backgroundDB,
-             runOrigin.userId || this.userId,
-             {
-               deliverable: event.lastAssistantContent ?? '',
-@@ -534,11 +546,11 @@ export class CompletionLifecycle {
+@@ -523,8 +535,10 @@ export class CompletionLifecycle {
+         // request (proxy timeout, function limit) leaves the round claimed and
+         // never judged. The gate runs in its own QStash delivery instead, which
+         // also collapses a producer's retried completions into one gate.
++        // The background DB, not the settlement transaction: the in-band
++        // fallback runs after this request, when the transaction has ended.
+         await scheduleVerifyOnCompletion(
+-          this.serverDB,
++          this.backgroundDB,
+           runOrigin.userId || this.userId,
+           {
+             deliverable: event.lastAssistantContent ?? '',
+@@ -538,11 +552,11 @@ export class CompletionLifecycle {
        if (reason === 'error' || reason === 'interrupted') {
          after(async () => {
            const userId = runOrigin.userId || this.userId;
@@ -4738,7 +4740,7 @@ index 8364f811aca2076518e9b32be966ec8f5bfb625c..926edb59931fc407a24f47c2b0db7adc
          });
        }
  
-@@ -627,7 +639,7 @@ export class CompletionLifecycle {
+@@ -631,7 +645,7 @@ export class CompletionLifecycle {
      event: { agentId?: string; duration?: number; lastAssistantContent?: string; topicId?: string },
      runOrigin: { trigger?: unknown; userId?: string } | undefined,
    ): Promise<void> {
@@ -4955,7 +4957,7 @@ index a1ba3d0564d2160db851687bcc84d374b560374b..5ec9f8c52b8c39dcb3d7d8e992bb1380
    const { discovery, initialContext, prep } = await traceSendStage('operation_init', () =>
      runOperationInit(
 diff --git a/apps/server/src/services/aiAgent/pipeline/execTurn.ts b/apps/server/src/services/aiAgent/pipeline/execTurn.ts
-index 33e1f652a5424b68e56a7b431242f5205362c354..4a3de43c0c7b893b9dd7bb3cd8acec1222a7055a 100644
+index 3d5fc26fd073f84c088850a67d3d1d25c6fb7f32..57ac83d1a886697f97ebb9e630d0a6bae6edd354 100644
 --- a/apps/server/src/services/aiAgent/pipeline/execTurn.ts
 +++ b/apps/server/src/services/aiAgent/pipeline/execTurn.ts
 @@ -21,6 +21,10 @@ import type { AgentConfigWithId } from '@/server/services/agent';
@@ -4996,7 +4998,7 @@ index 33e1f652a5424b68e56a7b431242f5205362c354..4a3de43c0c7b893b9dd7bb3cd8acec12
    // Shared context for the extracted execAgent pipeline stages
    // (`pipeline/*`). Built after the turn rows exist so every stage sees the
    // persisted anchors; `agentConfig` stays the same mutable object so stage
-@@ -624,7 +641,7 @@ export const execAgentTurn = async (
+@@ -635,7 +652,7 @@ export const execAgentTurn = async (
      approvalOwnerAssistantId,
      approvedToolEntries,
      attachedFileIds,
@@ -5005,7 +5007,7 @@ index 33e1f652a5424b68e56a7b431242f5205362c354..4a3de43c0c7b893b9dd7bb3cd8acec12
      disableSelfFeedbackIntentTool: params.disableSelfFeedbackIntentTool,
      disableTools: params.disableTools,
      ephemeralUserMessage,
-@@ -634,15 +651,15 @@ export const execAgentTurn = async (
+@@ -648,15 +665,15 @@ export const execAgentTurn = async (
      functionTools,
      globalMemoryEnabled,
      hasMentionedAgents,
@@ -5025,7 +5027,7 @@ index 33e1f652a5424b68e56a7b431242f5205362c354..4a3de43c0c7b893b9dd7bb3cd8acec12
      resumeApproval,
      resumeApprovalPlugin,
      resumeApprovals,
-@@ -652,7 +669,7 @@ export const execAgentTurn = async (
+@@ -666,7 +683,7 @@ export const execAgentTurn = async (
      runAttachments,
      selectedSkillIds,
      selectedToolIds,
@@ -5034,7 +5036,7 @@ index 33e1f652a5424b68e56a7b431242f5205362c354..4a3de43c0c7b893b9dd7bb3cd8acec12
      viewedGoal: appContext?.viewedGoal,
    });
  
-@@ -758,7 +775,7 @@ export const execAgentTurn = async (
+@@ -772,7 +789,7 @@ export const execAgentTurn = async (
  
    // 19. Create the operation via AgentRuntimeService, persist the reconnect
    // marker, and mint the gateway token (see `pipeline/startOperation`).
@@ -5043,7 +5045,7 @@ index 33e1f652a5424b68e56a7b431242f5205362c354..4a3de43c0c7b893b9dd7bb3cd8acec12
      startOperation(
        {
          agentRuntimeService: deps.agentRuntimeService,
-@@ -776,7 +793,7 @@ export const execAgentTurn = async (
+@@ -790,7 +807,7 @@ export const execAgentTurn = async (
          approvalClaim,
          approvalSourceOperationId,
          approvalSourceToolMessageIds,
@@ -5052,7 +5054,7 @@ index 33e1f652a5424b68e56a7b431242f5205362c354..4a3de43c0c7b893b9dd7bb3cd8acec12
          onOperationCreated: params.onOperationCreated,
          // From here the run's completion releases the slot and settles the
          // fee; a run that never started (failed, or created without
-@@ -818,5 +835,33 @@ export const execAgentTurn = async (
+@@ -832,5 +849,33 @@ export const execAgentTurn = async (
        },
      ),
    );
@@ -5088,10 +5090,10 @@ index 33e1f652a5424b68e56a7b431242f5205362c354..4a3de43c0c7b893b9dd7bb3cd8acec12
 +  return result;
  };
 diff --git a/apps/server/src/services/aiAgent/pipeline/operationPrep.ts b/apps/server/src/services/aiAgent/pipeline/operationPrep.ts
-index f08c9679acf26680737ab12835a03cafada2d10a..3dd8863736b23cd394220c6db333dcc1df804ed0 100644
+index 65944ad93769a809a97bc15910516ca796624a74..165cc019fb97d72b55739458d73f4aed61b9ce05 100644
 --- a/apps/server/src/services/aiAgent/pipeline/operationPrep.ts
 +++ b/apps/server/src/services/aiAgent/pipeline/operationPrep.ts
-@@ -601,14 +601,21 @@ export const prepareOperation = async (
+@@ -618,14 +618,21 @@ export const prepareOperation = async (
    // gates. manifestMap is intentionally broader for discovery and must not
    // by itself authorize a tool in chat/custom mode or without function calls.
    const historicalActivatedToolIds = extractActivatedToolIdsFromMessages(allMessages) ?? [];
@@ -10253,7 +10255,7 @@ index cf4139feaab3f398a01a0a0105d92dcf8c9fda05..a2c15c0792a06bde9709194d8c4efb4c
        } satisfies FlowControl,
        headers: options?.extraHeaders,
 diff --git a/docs/development/database-schema.dbml b/docs/development/database-schema.dbml
-index fc737ba84ce91a6418b8bda933dc0a7f96c6fb2d..7c7e5a07f97578b6b999be99436a7da5d012320c 100644
+index 5850d5d149875a21ccbdf75b29e917625a2d2b88..092615211eca8f468513733eb2816fd414e61419 100644
 --- a/docs/development/database-schema.dbml
 +++ b/docs/development/database-schema.dbml
 @@ -1556,6 +1556,87 @@ table chat_groups_agents {
@@ -10345,7 +10347,7 @@ index fc737ba84ce91a6418b8bda933dc0a7f96c6fb2d..7c7e5a07f97578b6b999be99436a7da5
    id uuid [pk, not null, default: `gen_random_uuid()`]
    user_connector_id uuid [not null]
 diff --git a/locales/en-US/chat.json b/locales/en-US/chat.json
-index fed87b9944e9a0e1046f691b86afafd830f14977..d654f54190b5861323b4fc8299891c6e84c9b23e 100644
+index d335e43b5e36dde4f876e253cba9daf717d6013d..c10797fd17028d2606a198435c1b9b3081913b58 100644
 --- a/locales/en-US/chat.json
 +++ b/locales/en-US/chat.json
 @@ -134,6 +134,14 @@
@@ -10378,7 +10380,7 @@ index 59ad5d0f6f9b46acc045aa3f1962f9d2d581da83..1bed9b59413cc7ffb9a28766a49e1be2
    "cohere.description": "Cohere delivers cutting-edge multilingual models, advanced retrieval, and AI workspaces for modern enterprises—all in one secure platform.",
    "cometapi.description": "CometAPI provides access to frontier models from OpenAI, Anthropic, Google, and more, letting users choose the best model and pricing for diverse use cases.",
 diff --git a/locales/zh-CN/chat.json b/locales/zh-CN/chat.json
-index cbf0285bfdb58a49c033f5c7ca5ab5eafc826b82..35aad72ac9e402854f86ebbd80fd06ee3e149cb8 100644
+index 2024342d1e259ca860ab26e04f17412a654f7592..66dffed5053fd08bd1f043415f2d107c7b0ce530 100644
 --- a/locales/zh-CN/chat.json
 +++ b/locales/zh-CN/chat.json
 @@ -134,6 +134,14 @@
@@ -10512,10 +10514,10 @@ index ac7fad0dba121beb9f8cac8fc1a0f0c7559e9c82..497210911a13d395525e6cfd4d6cd49f
          // subscription — only THIS op's terminal (or one with no operationId,
          // legacy gateway) is terminal here. Mirrors v1 exactly.
 diff --git a/packages/agent-runtime/src/agents/GeneralChatAgent.ts b/packages/agent-runtime/src/agents/GeneralChatAgent.ts
-index 73b8db4ef4b1e70f0df459b22b8f474104d7dac5..0099742a3d7784322fe5827e0c480f217be3bf4d 100644
+index 09e109ca81b04b915ed4be7af215fe80883f389c..31f5a8e9425dce65d7eb0e0540e4bbea9f050153 100644
 --- a/packages/agent-runtime/src/agents/GeneralChatAgent.ts
 +++ b/packages/agent-runtime/src/agents/GeneralChatAgent.ts
-@@ -167,7 +167,7 @@ export class GeneralChatAgent implements Agent {
+@@ -168,7 +168,7 @@ export class GeneralChatAgent implements Agent {
     * Combines user's global config with tool's own config
     * Returns [toolsNeedingIntervention, toolsToExecute]
     */
@@ -10525,7 +10527,7 @@ index 73b8db4ef4b1e70f0df459b22b8f474104d7dac5..0099742a3d7784322fe5827e0c480f21
      state: AgentState,
    ): Promise<[ChatToolPayload[], ChatToolPayload[]]> {
 diff --git a/packages/agent-runtime/src/types/state.ts b/packages/agent-runtime/src/types/state.ts
-index bc3a777ba2bed9dcc86c6edb0c6bde8c20906b91..4b689d9bbd8d3a7ffe59c1e39ec24331885bad74 100644
+index d3dd4047a48972dfbc0c97b8c38f8f793fcfe37b..cb97d0c1034dd161afa5c669cad6189fbc7bfba0 100644
 --- a/packages/agent-runtime/src/types/state.ts
 +++ b/packages/agent-runtime/src/types/state.ts
 @@ -16,6 +16,7 @@ import type {
@@ -10535,8 +10537,8 @@ index bc3a777ba2bed9dcc86c6edb0c6bde8c20906b91..4b689d9bbd8d3a7ffe59c1e39ec24331
 +  AssistantRuntimeBackend,
    ChatToolPayload,
    ChatTopicBotContext,
-   EvalToolForwardingConfig,
-@@ -208,6 +209,8 @@ export interface AgentRunHostEnvelope {
+   EvalConnectorSnapshots,
+@@ -219,6 +220,8 @@ export interface AgentRunHostEnvelope {
    llmExecutor?: AgentRunLlmExecutor;
    /** Queue retry policy for step scheduling. */
    queue?: { retries?: number; retryDelay?: string };
@@ -12451,15 +12453,16 @@ index 0000000000000000000000000000000000000000..8d3cf1b1c22328d69ae99e917185aec4
 +  }
 +}
 diff --git a/packages/database/src/models/topic/memoryExtractor.ts b/packages/database/src/models/topic/memoryExtractor.ts
-index 4d4a13e74355361ac68acd573587a00b36b4d6c9..a3c5ceacf26dc2054b4bc37bef16b4972387d79b 100644
+index fbe3f55fc43844558382147e13849e0b8973f886..2f940161649660e732ac593a1456288fd8b46ef0 100644
 --- a/packages/database/src/models/topic/memoryExtractor.ts
 +++ b/packages/database/src/models/topic/memoryExtractor.ts
-@@ -1,10 +1,15 @@
+@@ -1,11 +1,16 @@
 -import { and, count, eq, gt, gte, lte, ne, or, sql } from 'drizzle-orm';
 +import { and, count, desc, eq, gte, lt, lte, ne, or, sql } from 'drizzle-orm';
  
 -import { topics } from '../../schemas';
 +import { messages, topics } from '../../schemas';
+ import { notEvalTopic } from '../../utils/evalTopic';
  import { notChannelTopic } from '../../utils/topicVisibility';
  import type { TopicModelContext } from './context';
  import type { ListTopicsForMemoryExtractorCursor } from './types';
@@ -12472,7 +12475,7 @@ index 4d4a13e74355361ac68acd573587a00b36b4d6c9..a3c5ceacf26dc2054b4bc37bef16b497
  export const listTopicsForMemoryExtractor = async (
    ctx: TopicModelContext,
    options: {
-@@ -15,12 +20,21 @@ export const listTopicsForMemoryExtractor = async (
+@@ -16,12 +21,21 @@ export const listTopicsForMemoryExtractor = async (
      startDate?: Date;
    } = {},
  ) => {
@@ -12496,7 +12499,7 @@ index 4d4a13e74355361ac68acd573587a00b36b4d6c9..a3c5ceacf26dc2054b4bc37bef16b497
          ),
        )
      : undefined;
-@@ -33,7 +47,7 @@ export const listTopicsForMemoryExtractor = async (
+@@ -34,7 +48,7 @@ export const listTopicsForMemoryExtractor = async (
        userId: true,
      },
      limit: options.limit,
@@ -12505,7 +12508,7 @@ index 4d4a13e74355361ac68acd573587a00b36b4d6c9..a3c5ceacf26dc2054b4bc37bef16b497
      where: and(
        ctx.ownership(),
        // Share-visitor conversations are not the creator's own speech — never
-@@ -49,6 +63,15 @@ export const listTopicsForMemoryExtractor = async (
+@@ -52,6 +66,15 @@ export const listTopicsForMemoryExtractor = async (
            // expression crashes the production engine (see the note on the class).
            // A null `metadata` extracts to '' here too, so this covers it.
            sql`COALESCE(${topics.metadata}->>'userMemoryExtractStatus', '') <> 'completed'`,
@@ -12522,7 +12525,7 @@ index 4d4a13e74355361ac68acd573587a00b36b4d6c9..a3c5ceacf26dc2054b4bc37bef16b497
      ),
    });
 diff --git a/packages/database/src/models/user.ts b/packages/database/src/models/user.ts
-index e896bdbbd75de681a7d199825b22848ca9a2b410..9ff1ec9a730fd779ef2ef375879d15dbc88c04b6 100644
+index d8a5f49556a610e1e07fac5586cb74b084f72fff..4caa4c6cd0ae81a05f0f8fa08be0dc698642b98f 100644
 --- a/packages/database/src/models/user.ts
 +++ b/packages/database/src/models/user.ts
 @@ -87,6 +87,29 @@ interface LastActiveAtTransition {
@@ -12592,9 +12595,9 @@ index e896bdbbd75de681a7d199825b22848ca9a2b410..9ff1ec9a730fd779ef2ef375879d15db
  
      const whitelistCondition =
        options.whitelist && options.whitelist.length > 0
-@@ -957,7 +970,7 @@ export class UserModel {
-       .where(
-         and(cursorCondition, whitelistCondition, memoryEnabledCondition, hasChattedTopicCondition),
+@@ -964,7 +977,7 @@ export class UserModel {
+           hasChattedTopicCondition,
+         ),
        )
 -      .orderBy(asc(users.createdAt), asc(users.id));
 +      .orderBy(asc(userCreatedAtMs), asc(users.id));
@@ -13548,10 +13551,10 @@ index 0000000000000000000000000000000000000000..6480c508ee3e902e16b5d9247ba22164
 +  return prepared;
 +};
 diff --git a/packages/heterogeneous-agents/src/protocol/index.ts b/packages/heterogeneous-agents/src/protocol/index.ts
-index b83421d784cece6a719854fa66c2cc760d156f1c..b76a5f7df646c94ae3a338725688e23f686f1440 100644
+index 2003a1ea0d96d142af4c25e787f3e6fc007a6139..3141be48c4412f439922b3b696dd8e2453241574 100644
 --- a/packages/heterogeneous-agents/src/protocol/index.ts
 +++ b/packages/heterogeneous-agents/src/protocol/index.ts
-@@ -28,6 +28,15 @@ export {
+@@ -34,6 +34,15 @@ export {
    type HeterogeneousPromptEngineInput,
    type HeterogeneousPromptImage,
  } from './promptEngine';
@@ -13830,7 +13833,7 @@ index 0000000000000000000000000000000000000000..e9ec663aec59669602f00708c95b7917
 +
 +export const ASSISTANT_ISOLATION_ARGS = ['--setting-sources', '', '--strict-mcp-config'] as const;
 diff --git a/packages/heterogeneous-agents/src/spawn/index.ts b/packages/heterogeneous-agents/src/spawn/index.ts
-index 8742520b066df63766981cf1c83d720e37224c4a..a39b9b0b298ca9322bde454accc439fad52265e5 100644
+index 085dddd7ddb35a02f4cd54aaa3e0d076ffd1339a..88d161067d08eefd0cbfd93703d28d462cc320ee 100644
 --- a/packages/heterogeneous-agents/src/spawn/index.ts
 +++ b/packages/heterogeneous-agents/src/spawn/index.ts
 @@ -192,6 +192,7 @@ export {
@@ -14073,7 +14076,7 @@ index 0000000000000000000000000000000000000000..3bba683e57d29c9d54d6a2cb8f1913d9
 +  });
 +});
 diff --git a/packages/heterogeneous-agents/src/spawn/spawnAgent.ts b/packages/heterogeneous-agents/src/spawn/spawnAgent.ts
-index 9418353bfe418d4e7ad8b4205444ffef9db9be23..ca92d8f291bfe5292e3ba54bfcdb0c5e5712e143 100644
+index 93c09b2ccec62f715af66160b346e884fe6d3302..2576eb0affeadd05e924a787973f794e1c78e269 100644
 --- a/packages/heterogeneous-agents/src/spawn/spawnAgent.ts
 +++ b/packages/heterogeneous-agents/src/spawn/spawnAgent.ts
 @@ -16,6 +16,12 @@ import {
@@ -14172,11 +14175,11 @@ index 9418353bfe418d4e7ad8b4205444ffef9db9be23..ca92d8f291bfe5292e3ba54bfcdb0c5e
 +  const childEnv = (
 +    assistantMode
 +      ? buildAssistantEnvironment(options.env)
-+      : {
-+          ...(options.inheritEnv === false ? {} : process.env),
-+          ...getHeterogeneousAgentPresetEnv(options.agentType),
-+          ...options.env,
-+        }
++      : getHeterogeneousAgentSpawnEnv(
++          options.agentType,
++          options.env,
++          options.inheritEnv === false ? {} : process.env,
++        )
 +  ) as NodeJS.ProcessEnv;
 +  if (
 +    options.inheritEnv === false &&
@@ -14200,11 +14203,11 @@ index 9418353bfe418d4e7ad8b4205444ffef9db9be23..ca92d8f291bfe5292e3ba54bfcdb0c5e
      options.inputOptions,
    );
    const inputPlan = { ...promptPlan, args: [...lobeHubCli.args, ...promptPlan.args] };
--  const childEnv: NodeJS.ProcessEnv = {
--    ...process.env,
--    ...getHeterogeneousAgentPresetEnv(options.agentType),
--    ...options.env,
--  };
+-  const childEnv: NodeJS.ProcessEnv = getHeterogeneousAgentSpawnEnv(
+-    options.agentType,
+-    options.env,
+-    process.env,
+-  );
    // Codex builds each shell command's env from `[shell_environment_policy]`,
    // not from its own process env, so a user's `inherit = "core"` strips the
    // run context `lh` needs. Forward it as `shell_environment_policy.set.*`
@@ -14226,7 +14229,7 @@ index 9418353bfe418d4e7ad8b4205444ffef9db9be23..ca92d8f291bfe5292e3ba54bfcdb0c5e
    const startedAt = Date.now();
    const proc = spawnManaged(cliSpawnPlan.command, cliSpawnPlan.args, {
 diff --git a/packages/locales/src/default/chat.ts b/packages/locales/src/default/chat.ts
-index d4282254891c2dc429d6b977b019225ac062b10a..b9235a6fe3b8c54369078a5a4632422da63a0dd4 100644
+index 758cfb9627b381c593a8bb0902e6ccb29a4a9fde..b0314457f247b0c8eb3dc9f7cb32c59d90550d2e 100644
 --- a/packages/locales/src/default/chat.ts
 +++ b/packages/locales/src/default/chat.ts
 @@ -5,6 +5,16 @@ export default {
@@ -14626,7 +14629,7 @@ index 0000000000000000000000000000000000000000..9a77becfa9fc23a761d39809c1bf8eb0
 +  toolCallId: string;
 +}
 diff --git a/packages/types/src/index.ts b/packages/types/src/index.ts
-index 91d0bc2b49c2555db93fbd734c523c920b739cdc..37758289b34ff9e256c763c6f5df27fdc5e81c80 100644
+index 73f31e95a4dc8fc11c37a496aefe4e49070e9bdc..b4737532d0046376d67daab6091387b697db0e94 100644
 --- a/packages/types/src/index.ts
 +++ b/packages/types/src/index.ts
 @@ -12,11 +12,13 @@ export * from './aiChat';
@@ -15302,10 +15305,10 @@ index 0000000000000000000000000000000000000000..104db0860ff4b8375cd57fd737354b05
 +  return { ...response, enabledList };
 +};
 diff --git a/src/libs/swr/keys.ts b/src/libs/swr/keys.ts
-index 25fc4745c7593353462526cec6906e95e804b0eb..a61ecf42d30215170e9e87856e1c9385b0290817 100644
+index a8369eda4af8fe970bf183cad084a6c90c5cba6e..a0af32d80692cbe48b0376b47356cfdab476095c 100644
 --- a/src/libs/swr/keys.ts
 +++ b/src/libs/swr/keys.ts
-@@ -58,6 +58,10 @@ export const channelKeys = {
+@@ -62,6 +62,10 @@ export const channelKeys = {
    ),
  };
  
@@ -15329,10 +15332,10 @@ index 3becd8f4fafac8042ee6c72889f2ee466d6455e2..c9787b7f35a03885ad9969067435daa4
          value={{
            model: config.model,
 diff --git a/src/routes/(main)/agent/profile/features/ProfileEditor/index.tsx b/src/routes/(main)/agent/profile/features/ProfileEditor/index.tsx
-index 6454ce72d6c06444e99fe4d0a1ce4faf9fb8d6a4..1248a1c93ba4489ea57a948f5bfe8fdbf76ef9c6 100644
+index af4ec05692f1ac229c97de86e4f34595b366a32b..0716af2b09360d9a45f5f84c6bed7b32f4c77425 100644
 --- a/src/routes/(main)/agent/profile/features/ProfileEditor/index.tsx
 +++ b/src/routes/(main)/agent/profile/features/ProfileEditor/index.tsx
-@@ -25,6 +25,8 @@ import { resolveServerDefaultAgentModels } from '@/features/HeterogeneousAgent/m
+@@ -26,6 +26,8 @@ import { resolveServerDefaultAgentModels } from '@/features/HeterogeneousAgent/m
  import ReasoningEffortSelect from '@/features/ModelSelect/ReasoningEffortSelect';
  import ModelSwitchPanel from '@/features/ModelSwitchPanel';
  import RunPriorityHint from '@/features/ProfileEditor/AgentUserTools/RunPriorityHint';
@@ -15341,7 +15344,7 @@ index 6454ce72d6c06444e99fe4d0a1ce4faf9fb8d6a4..1248a1c93ba4489ea57a948f5bfe8fdb
  import { useEnabledChatModels } from '@/hooks/useEnabledChatModels';
  import { usePermission } from '@/hooks/usePermission';
  import { useAgentStore } from '@/store/agent';
-@@ -68,17 +70,29 @@ const ProfileEditor = memo(() => {
+@@ -69,17 +71,29 @@ const ProfileEditor = memo(() => {
    const agentId = useAgentStore((s) => s.activeAgentId || '');
    const config = useAgentStore(agentSelectors.getAgentConfigById(agentId), isEqual);
    const { isShared } = useAgentShareSupported(agentId);
@@ -15376,7 +15379,7 @@ index 6454ce72d6c06444e99fe4d0a1ce4faf9fb8d6a4..1248a1c93ba4489ea57a948f5bfe8fdb
    const heterogeneousProvider = config?.agencyConfig?.heterogeneousProvider;
    // Where this caller's new topics run. The environment picker and the panel
    // below both follow it, so the panel never describes this client by default.
-@@ -333,7 +347,7 @@ const ProfileEditor = memo(() => {
+@@ -349,7 +363,7 @@ const ProfileEditor = memo(() => {
                    placement={'bottomLeft'}
                    provider={config?.provider}
                    notice={
@@ -15385,7 +15388,7 @@ index 6454ce72d6c06444e99fe4d0a1ce4faf9fb8d6a4..1248a1c93ba4489ea57a948f5bfe8fdb
                        <Alert
                          showIcon
                          title={t('share.settings.modelRestriction.title', { ns: 'agent' })}
-@@ -342,7 +356,13 @@ const ProfileEditor = memo(() => {
+@@ -358,7 +372,13 @@ const ProfileEditor = memo(() => {
                            ns: 'agent',
                          })}
                        />
@@ -15400,7 +15403,7 @@ index 6454ce72d6c06444e99fe4d0a1ce4faf9fb8d6a4..1248a1c93ba4489ea57a948f5bfe8fdb
                    }
                    onModelChange={async (value) => {
                      if (canEdit) await updateAgentConfigById(agentId, value);
-@@ -350,7 +370,7 @@ const ProfileEditor = memo(() => {
+@@ -366,7 +386,7 @@ const ProfileEditor = memo(() => {
                  >
                    <Button disabled={!canEdit}>
                      <ModelIcon model={config?.model} size={20} />
