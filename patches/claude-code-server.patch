@@ -13851,10 +13851,10 @@ index 085dddd7ddb35a02f4cd54aaa3e0d076ffd1339a..88d161067d08eefd0cbfd93703d28d46
    type BuildClaudeCodeDirectEnvInput,
 diff --git a/packages/heterogeneous-agents/src/spawn/spawnAgent.assistant.test.ts b/packages/heterogeneous-agents/src/spawn/spawnAgent.assistant.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..377791f33dc4a728368d4039f787281f843377e7
+index 0000000000000000000000000000000000000000..d269c6cc094bff8750c71491103341ca78ffbc37
 --- /dev/null
 +++ b/packages/heterogeneous-agents/src/spawn/spawnAgent.assistant.test.ts
-@@ -0,0 +1,157 @@
+@@ -0,0 +1,159 @@
 +import type { ChildProcess, SpawnOptions } from 'node:child_process';
 +import * as childProcess from 'node:child_process';
 +import { EventEmitter } from 'node:events';
@@ -13982,10 +13982,12 @@ index 0000000000000000000000000000000000000000..377791f33dc4a728368d4039f787281f
 +      inheritEnv: false,
 +      integrationMode: undefined,
 +    });
-+    // Only the host preset survives, not the inherited environment.
++    // Only the host preset survives, not the inherited environment. The
++    // launcher aligns PWD with the child's cwd itself.
 +    expect(result.env).toEqual({
 +      ...getHeterogeneousAgentSpawnEnv('claude-code', undefined, {}),
 +      PATH: '/usr/bin',
++      PWD: expect.any(String),
 +    });
 +  });
 +
