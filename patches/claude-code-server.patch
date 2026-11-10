@@ -863,7 +863,7 @@ index 0000000000000000000000000000000000000000..7ebefc246d4e1c48f46ebd8d5b6da137
 +}
 diff --git a/apps/claude-code-worker/src/api.test.ts b/apps/claude-code-worker/src/api.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..18f536775603710b2bc78b099c07758e004ae9b9
+index 0000000000000000000000000000000000000000..a086af00606588c0b7cfed246eb186d6aef5fa69
 --- /dev/null
 +++ b/apps/claude-code-worker/src/api.test.ts
 @@ -0,0 +1,63 @@
@@ -892,7 +892,7 @@ index 0000000000000000000000000000000000000000..18f536775603710b2bc78b099c07758e
 +    const shutdown = new AbortController();
 +    await api.post('/claim', {}, shutdown.signal);
 +    await api.post('/runs/run/events', {});
-+    expect(timeout.mock.calls.map(([milliseconds]) => milliseconds)).toEqual([120_000, 20_000]);
++    expect(timeout.mock.calls.map(([milliseconds]) => milliseconds)).toEqual([130_000, 20_000]);
 +    const claimSignal = fetcher.mock.calls[0][1]!.signal!;
 +    expect(claimSignal.aborted).toBe(false);
 +    shutdown.abort();
@@ -932,7 +932,7 @@ index 0000000000000000000000000000000000000000..18f536775603710b2bc78b099c07758e
 +});
 diff --git a/apps/claude-code-worker/src/api.ts b/apps/claude-code-worker/src/api.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..ca413fa2c8917dc2763eccdfd7f89e5e44275c7f
+index 0000000000000000000000000000000000000000..0db1041f05c8db6aed87b7407819967e0a080d61
 --- /dev/null
 +++ b/apps/claude-code-worker/src/api.ts
 @@ -0,0 +1,40 @@
@@ -956,8 +956,8 @@ index 0000000000000000000000000000000000000000..ca413fa2c8917dc2763eccdfd7f89e5e
 +
 +  async post<T>(route: string, body: unknown, signal?: AbortSignal): Promise<T> {
 +    if (!route.startsWith('/') || route.includes('..')) throw new Error('Invalid worker route');
-+    // Claim includes fresh context preparation (bounded to 90s by the server).
-+    const timeout = AbortSignal.timeout(route === '/claim' ? 120_000 : 20_000);
++    // Claim waits up to 25s for queued work, then prepares fresh context (bounded to 90s).
++    const timeout = AbortSignal.timeout(route === '/claim' ? 130_000 : 20_000);
 +    const response = await this.fetcher(`${this.config.serverUrl}/api/claude-code/worker${route}`, {
 +      body: JSON.stringify(body),
 +      headers: {
@@ -1285,10 +1285,10 @@ index 0000000000000000000000000000000000000000..f345c699e34f105c6c577fdc1c3aaac4
 +});
 diff --git a/apps/claude-code-worker/src/config.ts b/apps/claude-code-worker/src/config.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..2407c6b896a74255928afeb91010bf3c290f28ab
+index 0000000000000000000000000000000000000000..17f6fe362033e7334694951a53daeaa9b7435aea
 --- /dev/null
 +++ b/apps/claude-code-worker/src/config.ts
-@@ -0,0 +1,66 @@
+@@ -0,0 +1,69 @@
 +import { readFile } from 'node:fs/promises';
 +import path from 'node:path';
 +
@@ -1296,6 +1296,8 @@ index 0000000000000000000000000000000000000000..2407c6b896a74255928afeb91010bf3c
 +  buildRevision: string;
 +  cliCommand: string;
 +  cliVersion: string;
++  /** How long one /claim may wait server-side for queued work. */
++  claimWaitMs: number;
 +  configDir: string;
 +  heartbeatIntervalMs: number;
 +  home: string;
@@ -1336,6 +1338,7 @@ index 0000000000000000000000000000000000000000..2407c6b896a74255928afeb91010bf3c
 +    buildRevision: required('LOBEHUB_BUILD_REVISION'),
 +    cliCommand: absolute('CLAUDE_CODE_COMMAND', '/usr/local/bin/claude'),
 +    cliVersion: required('CLAUDE_CODE_VERSION'),
++    claimWaitMs: 20_000,
 +    configDir: absolute('CLAUDE_CONFIG_DIR', '/home/claude/.claude'),
 +    home: absolute('CLAUDE_CODE_HOME', '/home/claude'),
 +    heartbeatIntervalMs: 15_000,
@@ -1957,12 +1960,213 @@ index 0000000000000000000000000000000000000000..1830bdc3f14954bb31423fcc215c97f7
 +    }
 +  }
 +};
+diff --git a/apps/claude-code-worker/src/runTiming.test.ts b/apps/claude-code-worker/src/runTiming.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..0c24e042e8d7e0cfce3afb83d6dad43c9e5aa6ef
+--- /dev/null
++++ b/apps/claude-code-worker/src/runTiming.test.ts
+@@ -0,0 +1,78 @@
++import { describe, expect, it } from 'vitest';
++
++import { RunTiming } from './runTiming';
++
++const line = (value: unknown) => `${JSON.stringify(value)}\n`;
++
++describe('RunTiming', () => {
++  it('reports stage timings and first-request cache use without any content', () => {
++    const timing = new RunTiming({ claimMs: 40, preparedMs: 300, queuedMs: 120 });
++    timing.markSpawned(1000);
++    const init = line({ subtype: 'init', type: 'system', model: 'secret-model-detail' });
++    // A line split across chunks still counts once complete.
++    timing.push(init.slice(0, 10), 1100);
++    timing.push(init.slice(10), 1600);
++    timing.push(
++      line({
++        event: {
++          message: {
++            usage: {
++              cache_creation_input_tokens: 50,
++              cache_read_input_tokens: 9000,
++              input_tokens: 12,
++            },
++          },
++          type: 'message_start',
++        },
++        type: 'stream_event',
++      }),
++      2000,
++    );
++    timing.push(
++      line({
++        event: {
++          delta: { thinking: 'private', type: 'thinking_delta' },
++          type: 'content_block_delta',
++        },
++        type: 'stream_event',
++      }),
++      2100,
++    );
++    timing.push(
++      line({
++        event: {
++          delta: { text: 'private answer', type: 'text_delta' },
++          type: 'content_block_delta',
++        },
++        type: 'stream_event',
++      }),
++      2500,
++    );
++    timing.push(
++      line({
++        event: { message: { usage: { input_tokens: 99 } }, type: 'message_start' },
++        type: 'stream_event',
++      }),
++      2600,
++    );
++    timing.push('not json\n', 2700);
++    timing.push(line({ result: 'private answer', subtype: 'success', type: 'result' }), 3000);
++    timing.markExit(3200);
++
++    const report = timing.toJSON();
++    expect(report).toEqual({
++      cacheCreationTokens: 50,
++      cacheReadTokens: 9000,
++      claimMs: 40,
++      exitMs: 2200,
++      firstDeltaMs: 1100,
++      firstTextMs: 1500,
++      initMs: 600,
++      inputTokens: 12,
++      preparedMs: 300,
++      queuedMs: 120,
++      resultMs: 2000,
++    });
++    expect(JSON.stringify(report)).not.toContain('private');
++  });
++});
+diff --git a/apps/claude-code-worker/src/runTiming.ts b/apps/claude-code-worker/src/runTiming.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..9399b8bce5c9060e1f53395e3d34445d06d43d03
+--- /dev/null
++++ b/apps/claude-code-worker/src/runTiming.ts
+@@ -0,0 +1,111 @@
++/**
++ * Per-run latency and prompt-cache diagnostics read from the CLI's raw
++ * stream-json. Only timestamps and token counts are kept: never content,
++ * prompts, tool arguments or account details.
++ */
++export interface RunTimingReport {
++  cacheCreationTokens?: number;
++  cacheReadTokens?: number;
++  claimMs?: number;
++  /** First streamed token of any kind (thinking included), from spawn. */
++  firstDeltaMs?: number;
++  /** First visible answer token, from spawn. */
++  firstTextMs?: number;
++  /** CLI ready (system init), from spawn. */
++  initMs?: number;
++  inputTokens?: number;
++  preparedMs?: number;
++  queuedMs?: number;
++  /** CLI exit, from spawn. */
++  exitMs?: number;
++  /** Final result line, from spawn. */
++  resultMs?: number;
++}
++
++interface StreamLine {
++  event?: {
++    delta?: { type?: string };
++    message?: {
++      usage?: {
++        cache_creation_input_tokens?: number;
++        cache_read_input_tokens?: number;
++        input_tokens?: number;
++      };
++    };
++    type?: string;
++  };
++  subtype?: string;
++  type?: string;
++}
++
++export class RunTiming {
++  private buffer = '';
++  private readonly report: RunTimingReport;
++  private spawnedAt = 0;
++
++  constructor(base: Pick<RunTimingReport, 'claimMs' | 'preparedMs' | 'queuedMs'> = {}) {
++    this.report = { ...base };
++  }
++
++  markSpawned(now = Date.now()) {
++    this.spawnedAt = now;
++  }
++
++  /** Feed raw stdout; tolerant of chunks split mid-line and of non-JSON lines. */
++  push(chunk: Buffer | string, now = Date.now()) {
++    if (!this.spawnedAt) return;
++    this.buffer += chunk.toString();
++    let index: number;
++    while ((index = this.buffer.indexOf('\n')) >= 0) {
++      const line = this.buffer.slice(0, index);
++      this.buffer = this.buffer.slice(index + 1);
++      this.observe(line, now - this.spawnedAt);
++    }
++    // A huge tool result line is irrelevant to timing; do not hold it in memory.
++    if (this.buffer.length > 1_000_000) this.buffer = '';
++  }
++
++  markExit(now = Date.now()) {
++    if (this.spawnedAt) this.report.exitMs = now - this.spawnedAt;
++  }
++
++  toJSON(): RunTimingReport {
++    return { ...this.report };
++  }
++
++  private observe(line: string, elapsed: number) {
++    // Cheap prefilter: only the few line shapes we read are parsed.
++    if (
++      !line.includes('"system"') &&
++      !line.includes('"stream_event"') &&
++      !line.includes('"result"')
++    )
++      return;
++    let message: StreamLine | undefined;
++    try {
++      message = JSON.parse(line) as StreamLine;
++    } catch {
++      return;
++    }
++    const report = this.report;
++    if (message?.type === 'system' && message.subtype === 'init') {
++      report.initMs ??= elapsed;
++    } else if (message?.type === 'stream_event') {
++      const event = message.event;
++      if (event?.type === 'message_start' && report.inputTokens === undefined) {
++        // The first request decides time to first token; later steps reuse its cache.
++        const usage = event.message?.usage;
++        if (usage) {
++          report.inputTokens = usage.input_tokens;
++          report.cacheReadTokens = usage.cache_read_input_tokens;
++          report.cacheCreationTokens = usage.cache_creation_input_tokens;
++        }
++      } else if (event?.type === 'content_block_delta') {
++        report.firstDeltaMs ??= elapsed;
++        if (event.delta?.type === 'text_delta') report.firstTextMs ??= elapsed;
++      }
++    } else if (message?.type === 'result') {
++      report.resultMs ??= elapsed;
++    }
++  }
++}
 diff --git a/apps/claude-code-worker/src/runner.test.ts b/apps/claude-code-worker/src/runner.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..68a32bf42a998bb057cf2a07d0e8eba64c6458d1
+index 0000000000000000000000000000000000000000..396e94a080d1878be14a137841caf0a91bc612a0
 --- /dev/null
 +++ b/apps/claude-code-worker/src/runner.test.ts
-@@ -0,0 +1,296 @@
+@@ -0,0 +1,299 @@
 +import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 +import os from 'node:os';
 +import path from 'node:path';
@@ -2100,6 +2304,9 @@ index 0000000000000000000000000000000000000000..68a32bf42a998bb057cf2a07d0e8eba6
 +    expect(spawned.extraArgs).not.toContain('--resume');
 +    expect(spawned).not.toHaveProperty('resumeSessionId');
 +    expect(spawned.prompt).toBe('hello');
++    // The CLI must not stay alive summarizing the turn after the answer.
++    expect(spawned.env).toMatchObject({ CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' });
++    expect(spawned.onRawStdout).toEqual(expect.any(Function));
 +    expect(toolRequests).toBe(1);
 +    expect(questionRequests).toBe(2);
 +    const questions = post.mock.calls.filter(([route]) => route.endsWith('/intervention'));
@@ -2261,10 +2468,10 @@ index 0000000000000000000000000000000000000000..68a32bf42a998bb057cf2a07d0e8eba6
 +});
 diff --git a/apps/claude-code-worker/src/runner.ts b/apps/claude-code-worker/src/runner.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..7c111c4e9f27845c9fd30a603c8bd29cd59355f6
+index 0000000000000000000000000000000000000000..3d7ced82010678f1126be84314b7068f410c05df
 --- /dev/null
 +++ b/apps/claude-code-worker/src/runner.ts
-@@ -0,0 +1,240 @@
+@@ -0,0 +1,274 @@
 +import { randomUUID } from 'node:crypto';
 +import { mkdir, rm, writeFile } from 'node:fs/promises';
 +import path from 'node:path';
@@ -2286,10 +2493,13 @@ index 0000000000000000000000000000000000000000..7c111c4e9f27845c9fd30a603c8bd29c
 +import { workerCliEnvironment } from './config';
 +import { RunLease } from './lease';
 +import { type RunFinish, RunOutbox } from './outbox';
++import { RunTiming } from './runTiming';
 +import { awaitToolResult, mapToolEvent } from './toolBridge';
 +
 +interface RunnerDependencies {
 +  api: WorkerApi;
++  /** Time the worker's /claim request took, including any server-side wait. */
++  claimMs?: number;
 +  config: WorkerConfig;
 +  mcp: LobeBuiltinMcpServer;
 +  signal: AbortSignal;
@@ -2311,6 +2521,15 @@ index 0000000000000000000000000000000000000000..7c111c4e9f27845c9fd30a603c8bd29c
 +  let stepIndex = 0;
 +  let streamFailed = false;
 +  let streamInterrupted = false;
++  const timing = new RunTiming({
++    claimMs: deps.claimMs,
++    preparedMs: claim.timing?.preparedMs,
++    queuedMs: claim.timing?.queuedMs,
++  });
++  // Deliver the first event of a burst at once; the 250ms tick only batches what
++  // arrives while a delivery is already in flight.
++  let kickDelivery: (() => void) | undefined;
++  let eventsPending = false;
 +  const bridge = new AskUserBridge(claim.operationId, { getStepIndex: () => stepIndex });
 +  const lease = new RunLease(api, claim.operationId, claim.leaseToken, claim.leaseExpiresAt, () => {
 +    bridge.cancelAll('session_ended');
@@ -2332,6 +2551,8 @@ index 0000000000000000000000000000000000000000..7c111c4e9f27845c9fd30a603c8bd29c
 +    if (event.type === 'agent_runtime_end' && event.data?.reason === 'interrupted')
 +      streamInterrupted = true;
 +    await box.append(mapToolEvent(event, claim.request.tools, results));
++    eventsPending = true;
++    kickDelivery?.();
 +  };
 +  const answerQuestion = async (event: AgentStreamEvent) => {
 +    while (!lease.controller.signal.aborted) {
@@ -2377,15 +2598,25 @@ index 0000000000000000000000000000000000000000..7c111c4e9f27845c9fd30a603c8bd29c
 +  });
 +  const deliveries = (async () => {
 +    while (!delivery.signal.aborted) {
++      eventsPending = false;
 +      try {
 +        await box.deliver(api, delivery.signal);
 +      } catch {
 +        /* Retry only the event journal. */
 +      }
++      // Tokens that streamed in during that delivery go out shortly, still batched;
++      // only an idle wait can be cut short by a new event.
++      const busy = eventsPending;
++      const tick = new AbortController();
++      kickDelivery = busy ? undefined : () => tick.abort();
 +      try {
-+        await delay(250, undefined, { signal: delivery.signal });
++        await delay(busy ? 50 : 250, undefined, {
++          signal: AbortSignal.any([delivery.signal, tick.signal]),
++        });
 +      } catch {
-+        return;
++        if (delivery.signal.aborted) return;
++      } finally {
++        kickDelivery = undefined;
 +      }
 +    }
 +  })();
@@ -2443,17 +2674,24 @@ index 0000000000000000000000000000000000000000..7c111c4e9f27845c9fd30a603c8bd29c
 +      extraArgs.push('--append-system-prompt-file', systemPromptFile);
 +    }
 +    extraArgs.push('--session-id', randomUUID());
++    timing.markSpawned();
 +    handle = await (deps.spawn ?? spawnAgent)({
 +      agentType: 'claude-code',
 +      askUserBridge: bridge,
 +      command: config.cliCommand,
 +      commandVersion: config.cliVersion,
 +      cwd,
-+      env: workerCliEnvironment(config),
++      env: {
++        ...workerCliEnvironment(config),
++        // Skips the CLI's post-turn summary and telemetry, which kept the process
++        // (and so the single worker slot) busy for seconds after the answer.
++        CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
++      },
 +      extraArgs,
 +      includePartialMessages: true,
 +      inheritEnv: false,
 +      integrationMode: 'lobehub-assistant',
++      onRawStdout: (chunk) => timing.push(chunk),
 +      operationId: claim.operationId,
 +      prompt: claim.request.prompt,
 +    });
@@ -2465,6 +2703,7 @@ index 0000000000000000000000000000000000000000..7c111c4e9f27845c9fd30a603c8bd29c
 +    }
 +    for await (const event of handle.events) await append(event);
 +    const exit = await handle.exit;
++    timing.markExit();
 +    finish = lease.status
 +      ? { status: lease.status }
 +      : streamInterrupted
@@ -2501,16 +2740,18 @@ index 0000000000000000000000000000000000000000..7c111c4e9f27845c9fd30a603c8bd29c
 +    await deliveries;
 +    await rm(systemPromptFile, { force: true });
 +  }
++  // Timings and token counts only, for tuning time to first token and cache reuse.
++  console.info('Claude Code run timing:', JSON.stringify(timing));
 +  await box.setFinish(finish);
 +  // A failure leaves the journal for recovery; no new model task is attempted.
 +  await box.finish(api, signal);
 +};
 diff --git a/apps/claude-code-worker/src/service.test.ts b/apps/claude-code-worker/src/service.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..8cc33d01b6c3eb36ed1386304e19e21c740fee96
+index 0000000000000000000000000000000000000000..bc07014ce21e47109b463978e81b2c2dd8d7bbce
 --- /dev/null
 +++ b/apps/claude-code-worker/src/service.test.ts
-@@ -0,0 +1,76 @@
+@@ -0,0 +1,99 @@
 +import { mkdtemp, rm } from 'node:fs/promises';
 +import os from 'node:os';
 +import path from 'node:path';
@@ -2570,6 +2811,29 @@ index 0000000000000000000000000000000000000000..8cc33d01b6c3eb36ed1386304e19e21c
 +    }
 +  });
 +
++  it('long-polls for work and claims again at once after a run', async () => {
++    vi.mocked(readClaudeAuthStatus).mockResolvedValue('logged_in');
++    const shutdown = new AbortController();
++    let claims = 0;
++    vi.mocked(runOperation).mockResolvedValue(undefined);
++    const post = vi.fn(async (route: string) => {
++      if (route !== '/claim') return { ok: true };
++      claims += 1;
++      if (claims >= 2) shutdown.abort();
++      return claims === 1 ? testClaim() : null;
++    });
++    const config = { ...testConfig(root), pollIntervalMs: 60_000 };
++    const active = serveWorker(config, { post } as WorkerApi, shutdown.signal);
++    // A one-minute poll interval would stall here if the worker paused after the run.
++    await vi.waitFor(() => expect(claims).toBe(2), { timeout: 2000 });
++    await active;
++    expect(post).toHaveBeenCalledWith('/claim', { waitMs: 20_000 }, shutdown.signal);
++    expect(runOperation).toHaveBeenCalledWith(
++      expect.anything(),
++      expect.objectContaining({ claimMs: expect.any(Number) }),
++    );
++  });
++
 +  it('reports login needed without discovering models or claiming billable work', async () => {
 +    vi.mocked(readClaudeAuthStatus).mockResolvedValue('logged_out');
 +    const shutdown = new AbortController();
@@ -2589,10 +2853,10 @@ index 0000000000000000000000000000000000000000..8cc33d01b6c3eb36ed1386304e19e21c
 +});
 diff --git a/apps/claude-code-worker/src/service.ts b/apps/claude-code-worker/src/service.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..3a82e8f93bb4c8e975dc4bc8b02edb8ef8bf35b4
+index 0000000000000000000000000000000000000000..ec91ddc76b751cae19f4036de692537a7a6095da
 --- /dev/null
 +++ b/apps/claude-code-worker/src/service.ts
-@@ -0,0 +1,87 @@
+@@ -0,0 +1,103 @@
 +import { mkdir } from 'node:fs/promises';
 +import { setTimeout as delay } from 'node:timers/promises';
 +
@@ -2648,6 +2912,9 @@ index 0000000000000000000000000000000000000000..3a82e8f93bb4c8e975dc4bc8b02edb8e
 +  })();
 +  try {
 +    while (!signal.aborted) {
++      // Pause between cycles only when nothing waited: an idle long poll already
++      // spent its time on the server, and finished work may have more queued.
++      let pause = true;
 +      try {
 +        // Finish every saved operation before taking new work. Recovery has no
 +        // path to spawnAgent, and cannot repeat a previous model/tool execution.
@@ -2657,8 +2924,20 @@ index 0000000000000000000000000000000000000000..3a82e8f93bb4c8e975dc4bc8b02edb8e
 +          capabilities.models &&
 +          Date.now() - health.lastHeartbeat < 30_000
 +        ) {
-+          const claim = await api.post<ClaudeCodeWorkerClaim | null>('/claim', {}, signal);
-+          if (claim) await runOperation(claim, { api, config, mcp, signal });
++          const requestedAt = Date.now();
++          const claim = await api.post<ClaudeCodeWorkerClaim | null>(
++            '/claim',
++            { waitMs: config.claimWaitMs },
++            signal,
++          );
++          const claimMs = Date.now() - requestedAt;
++          if (claim) {
++            await runOperation(claim, { api, claimMs, config, mcp, signal });
++            pause = false;
++          } else if (claimMs >= 1000) {
++            // A server without long polling answers at once; keep its old cadence.
++            pause = false;
++          }
 +        }
 +      } catch (error) {
 +        // Keep diagnostics free of prompts, account identifiers and credentials:
@@ -2669,6 +2948,7 @@ index 0000000000000000000000000000000000000000..3a82e8f93bb4c8e975dc4bc8b02edb8e
 +            error instanceof Error ? `${error.name}: ${error.message.slice(0, 200)}` : typeof error,
 +          );
 +      }
++      if (!pause) continue;
 +      try {
 +        await delay(config.pollIntervalMs, undefined, { signal });
 +      } catch {
@@ -2682,10 +2962,10 @@ index 0000000000000000000000000000000000000000..3a82e8f93bb4c8e975dc4bc8b02edb8e
 +};
 diff --git a/apps/claude-code-worker/src/testUtils.ts b/apps/claude-code-worker/src/testUtils.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..4af49d91b64e86fd5b83c33943609a2268cd7f84
+index 0000000000000000000000000000000000000000..719dd74896f28188bfd4a3f49e83996d7142af89
 --- /dev/null
 +++ b/apps/claude-code-worker/src/testUtils.ts
-@@ -0,0 +1,48 @@
+@@ -0,0 +1,49 @@
 +import path from 'node:path';
 +
 +import type { AgentStreamEvent } from '@lobechat/agent-gateway-client';
@@ -2724,6 +3004,7 @@ index 0000000000000000000000000000000000000000..4af49d91b64e86fd5b83c33943609a22
 +  buildRevision: 'test',
 +  cliCommand: path.join(root, 'claude'),
 +  cliVersion: '2.1.301',
++  claimWaitMs: 20_000,
 +  configDir: path.join(root, 'home', '.claude'),
 +  home: path.join(root, 'home'),
 +  heartbeatIntervalMs: 20,
@@ -3389,11 +3670,13 @@ index c3d1ab8bda3c38e8b0c5e897edd4f8060a828b73..74fa9ec4cb2aacf4736d8949da524288
      builtinModels.find((item) => item.id === model && item.providerId === provider) ??
 diff --git a/apps/server/src/router-hono/claude-code/index.test.ts b/apps/server/src/router-hono/claude-code/index.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..afbab7d14a0335e132918890af760a2d8e97f380
+index 0000000000000000000000000000000000000000..7ca8bc3a7a2bae28d3e66fee925a9123a54fcfac
 --- /dev/null
 +++ b/apps/server/src/router-hono/claude-code/index.test.ts
-@@ -0,0 +1,219 @@
+@@ -0,0 +1,251 @@
 +import { beforeEach, describe, expect, it, vi } from 'vitest';
++
++import { notifyClaudeCodeRunsChanged } from '@/server/services/claudeCode/runSignal';
 +
 +import app from './index';
 +
@@ -3526,6 +3809,36 @@ index 0000000000000000000000000000000000000000..afbab7d14a0335e132918890af760a2d
 +    );
 +  });
 +
++  it('long-polls for queued work and wakes as soon as a run is queued', async () => {
++    const run = {
++      leaseExpiresAt: new Date('2030-01-01'),
++      operationId: 'run-a',
++      preparedRequest: { request: { prompt: 'hello' }, state: {} },
++      queuedAt: new Date(),
++    };
++    mock.claim.mockResolvedValueOnce(undefined).mockResolvedValue(run);
++    const startedAt = Date.now();
++    const pending = post('/claim', { waitMs: 20_000 });
++    await vi.waitFor(() => expect(mock.claim).toHaveBeenCalledTimes(1));
++    notifyClaudeCodeRunsChanged();
++    const body = await (await pending).json();
++    // Woken by the queue signal, not the 500ms recheck.
++    expect(Date.now() - startedAt).toBeLessThan(450);
++    expect(body.operationId).toBe('run-a');
++    expect(body.timing).toEqual({ preparedMs: expect.any(Number), queuedMs: expect.any(Number) });
++    expect(mock.claim).toHaveBeenCalledTimes(2);
++  });
++
++  it('answers an idle long poll with null once its wait elapses', async () => {
++    const response = await post('/claim', { waitMs: 600 });
++    expect(await response.json()).toBeNull();
++    expect(mock.claim.mock.calls.length).toBeGreaterThanOrEqual(2);
++  });
++
++  it('rejects an unbounded claim wait', async () => {
++    expect((await post('/claim', { waitMs: 60_000 })).status).toBe(400);
++  });
++
 +  it('does not hand a queued snapshot to the worker when current preparation fails', async () => {
 +    mock.claim.mockResolvedValue({ operationId: 'run-a', preparedRequest: { state: {} } });
 +    mock.prepare.mockRejectedValue(new Error('Workspace access has been revoked'));
@@ -3614,10 +3927,10 @@ index 0000000000000000000000000000000000000000..afbab7d14a0335e132918890af760a2d
 +});
 diff --git a/apps/server/src/router-hono/claude-code/index.ts b/apps/server/src/router-hono/claude-code/index.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..ce2a0b3185428616a3c744fbf066eaebd658d4c5
+index 0000000000000000000000000000000000000000..fc377ca28d8135258d28d32d1c9c5215d359017f
 --- /dev/null
 +++ b/apps/server/src/router-hono/claude-code/index.ts
-@@ -0,0 +1,201 @@
+@@ -0,0 +1,222 @@
 +import { createHash, randomBytes } from 'node:crypto';
 +
 +import type { AgentInterventionRequestData } from '@lobechat/agent-gateway-client';
@@ -3633,10 +3946,12 @@ index 0000000000000000000000000000000000000000..ce2a0b3185428616a3c744fbf066eaeb
 +import { prepareClaimedClaudeCodeRun } from '@/server/services/claudeCode/prepareClaim';
 +import { projectClaudeCodeEvents } from '@/server/services/claudeCode/projectEvents';
 +import { recoverClaudeCodeRuns } from '@/server/services/claudeCode/recover';
++import { waitForClaudeCodeRunChange } from '@/server/services/claudeCode/runSignal';
 +import { isClaudeCodeServerEnabled } from '@/server/services/claudeCode/status';
 +import { executeClaudeCodeTool } from '@/server/services/claudeCode/toolBridge';
 +
 +import {
++  claimBody,
 +  eventsBody,
 +  finishBody,
 +  interventionBody,
@@ -3644,6 +3959,9 @@ index 0000000000000000000000000000000000000000..ce2a0b3185428616a3c744fbf066eaeb
 +  toolBody,
 +  workerStatusBody,
 +} from './schema';
++
++/** Recheck interval while a claim waits; a queue signal usually wakes it sooner. */
++const CLAIM_RECHECK_MS = 500;
 +
 +interface WorkerScope {
 +  db: LobeChatDatabase;
@@ -3712,11 +4030,26 @@ index 0000000000000000000000000000000000000000..ce2a0b3185428616a3c744fbf066eaeb
 +app.post('/claim', async (c) => {
 +  if (!isClaudeCodeServerEnabled()) return c.json(null);
 +  const scope = c.get('worker');
++  // Workers that predate long polling send `{}` and keep their own poll interval.
++  const { waitMs = 0 } = claimBody.parse(await c.req.json().catch(() => ({})));
 +  const leaseToken = randomBytes(32).toString('hex');
 +  const model = new ClaudeCodeModel(scope.db, scope.userId, scope.workspaceId);
++  const deadline = Date.now() + waitMs;
 +  let run = await model.claimNextRun(scope.workerId, leaseToken);
++  while (!run && Date.now() < deadline && !c.req.raw.signal.aborted) {
++    await waitForClaudeCodeRunChange(
++      Math.min(CLAIM_RECHECK_MS, deadline - Date.now()),
++      c.req.raw.signal,
++    );
++    if (c.req.raw.signal.aborted) break;
++    run = await model.claimNextRun(scope.workerId, leaseToken);
++  }
 +  if (!run) return c.json(null);
 +  const operationId = run.operationId;
++  const claimedAt = Date.now();
++  const queuedMs = run.queuedAt
++    ? Math.max(0, claimedAt - new Date(run.queuedAt).getTime())
++    : undefined;
 +  // Preparation may resolve files and tools for longer than one lease interval.
 +  // This only keeps the reservation alive; no CLI process has started yet.
 +  const timer = setInterval(() => {
@@ -3741,6 +4074,7 @@ index 0000000000000000000000000000000000000000..ce2a0b3185428616a3c744fbf066eaeb
 +      leaseToken,
 +      operationId,
 +      request: run.preparedRequest.request,
++      timing: { preparedMs: Date.now() - claimedAt, queuedMs },
 +    });
 +  } catch (error) {
 +    await finishClaudeCodeRun({
@@ -3821,13 +4155,17 @@ index 0000000000000000000000000000000000000000..ce2a0b3185428616a3c744fbf066eaeb
 +export default app;
 diff --git a/apps/server/src/router-hono/claude-code/schema.ts b/apps/server/src/router-hono/claude-code/schema.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..984673f2e897e7f27063d70e68f7c8f435bb9ab1
+index 0000000000000000000000000000000000000000..b2ead926975651963b30eeceb1eb3debfa88bad9
 --- /dev/null
 +++ b/apps/server/src/router-hono/claude-code/schema.ts
-@@ -0,0 +1,89 @@
+@@ -0,0 +1,93 @@
 +import { z } from 'zod';
 +
 +const id = z.string().min(1).max(256);
++/** A claim may wait server-side for queued work instead of the worker polling. */
++export const claimBody = z
++  .object({ waitMs: z.number().int().min(0).max(25_000).optional() })
++  .strict();
 +export const leaseBody = z.object({ leaseToken: z.string().min(32).max(256) }).strict();
 +export const workerStatusBody = z
 +  .object({
@@ -6985,10 +7323,10 @@ index 0000000000000000000000000000000000000000..618ada656d5aacc1d1b8792d8db68ef9
 +  (selection.agencyConfig?.executionTarget === 'device' && !!selection.agencyConfig.boundDeviceId);
 diff --git a/apps/server/src/services/claudeCode/enqueue.ts b/apps/server/src/services/claudeCode/enqueue.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..88f30780680b6238fbc04cda6963c4ad471106e5
+index 0000000000000000000000000000000000000000..66541613c61d43d47d0af5fefca938ff99a9887b
 --- /dev/null
 +++ b/apps/server/src/services/claudeCode/enqueue.ts
-@@ -0,0 +1,160 @@
+@@ -0,0 +1,163 @@
 +import type { AgentState } from '@lobechat/agent-runtime';
 +import type { AgentRunInitRequest } from '@lobechat/types';
 +import { and, eq, isNull } from 'drizzle-orm';
@@ -6999,6 +7337,7 @@ index 0000000000000000000000000000000000000000..88f30780680b6238fbc04cda6963c4ad
 +import type { AgentRuntimeService } from '@/server/services/agentRuntime';
 +import type { InternalExecAgentParams } from '@/server/services/aiAgent/types';
 +
++import { notifyClaudeCodeRunsChanged } from './runSignal';
 +import { isClaudeCodeServerEnabled } from './status';
 +
 +export type ClaudeCodeTurnOverrides = Pick<
@@ -7127,7 +7466,7 @@ index 0000000000000000000000000000000000000000..88f30780680b6238fbc04cda6963c4ad
 +  if (!binding.capabilities.models?.some(({ id }) => id === state.modelRuntimeConfig!.model)) {
 +    throw new Error('This model is not available in your Claude Code worker');
 +  }
-+  return new ClaudeCodeModel(db, userId, workspaceId).enqueueRun({
++  const queued = await new ClaudeCodeModel(db, userId, workspaceId).enqueueRun({
 +    operationId,
 +    preparedRequest: {
 +      // No cached attachment content, signed URLs or executable CLI prompt in the queue intent.
@@ -7148,13 +7487,15 @@ index 0000000000000000000000000000000000000000..88f30780680b6238fbc04cda6963c4ad
 +    threadId: state.origin.threadId,
 +    topicId: state.origin.topicId,
 +  });
++  notifyClaudeCodeRunsChanged();
++  return queued;
 +};
 diff --git a/apps/server/src/services/claudeCode/finish.ts b/apps/server/src/services/claudeCode/finish.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..8ebf189f07e897b27ff752be386c94fb1d9f2f55
+index 0000000000000000000000000000000000000000..cca21a16b5b7983a1f2213f210115861408f6c43
 --- /dev/null
 +++ b/apps/server/src/services/claudeCode/finish.ts
-@@ -0,0 +1,151 @@
+@@ -0,0 +1,154 @@
 +import type { AgentState } from '@lobechat/agent-runtime';
 +import { parse } from '@lobechat/conversation-flow';
 +import superjson from 'superjson';
@@ -7171,6 +7512,7 @@ index 0000000000000000000000000000000000000000..8ebf189f07e897b27ff752be386c94fb
 +  drainClaudeCodeEvents,
 +  restoreClaudeCodeProjection,
 +} from './projectEvents';
++import { notifyClaudeCodeRunsChanged } from './runSignal';
 +
 +const LIFECYCLE_RETRY_MS = 120_000;
 +const INTERRUPTED_MESSAGE =
@@ -7303,6 +7645,8 @@ index 0000000000000000000000000000000000000000..8ebf189f07e897b27ff752be386c94fb
 +    error: scope.error,
 +    status: scope.status,
 +  });
++  // The execution slot is free again; a waiting claim can take the next run.
++  notifyClaudeCodeRunsChanged();
 +  await settleClaudeCodeRun(scope);
 +  return { status: finished.status };
 +};
@@ -8832,6 +9176,47 @@ index 0000000000000000000000000000000000000000..213f6a952ac20738b802f6faf3bfdea7
 +    },
 +  );
 +};
+diff --git a/apps/server/src/services/claudeCode/runSignal.ts b/apps/server/src/services/claudeCode/runSignal.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..bf21a99c48ea3aebcf9eb31b24cfdc635bc0877d
+--- /dev/null
++++ b/apps/server/src/services/claudeCode/runSignal.ts
+@@ -0,0 +1,35 @@
++/**
++ * Wakes long-polling worker claims as soon as a run may be claimable. A missed
++ * signal (another process, or a commit that lands after it) only costs one
++ * recheck interval, because waiters always fall back to their timeout.
++ */
++const KEY = Symbol.for('lobehub.claudeCode.runSignal');
++
++type Store = { waiters: Set<() => void> };
++
++const store = (): Store => {
++  const holder = globalThis as typeof globalThis & { [KEY]?: Store };
++  holder[KEY] ??= { waiters: new Set() };
++  return holder[KEY];
++};
++
++export const notifyClaudeCodeRunsChanged = () => {
++  const { waiters } = store();
++  for (const wake of [...waiters]) wake();
++};
++
++/** Resolve after `ms`, on abort, or when a run is queued or a slot frees up. */
++export const waitForClaudeCodeRunChange = (ms: number, signal?: AbortSignal) =>
++  new Promise<void>((resolve) => {
++    if (ms <= 0 || signal?.aborted) return resolve();
++    const { waiters } = store();
++    const done = () => {
++      clearTimeout(timer);
++      waiters.delete(done);
++      signal?.removeEventListener('abort', done);
++      resolve();
++    };
++    const timer = setTimeout(done, ms);
++    waiters.add(done);
++    signal?.addEventListener('abort', done, { once: true });
++  });
 diff --git a/apps/server/src/services/claudeCode/runtimeState.test.ts b/apps/server/src/services/claudeCode/runtimeState.test.ts
 new file mode 100644
 index 0000000000000000000000000000000000000000..23da6f3d455fc977616cd0d44e640051b68c6344
@@ -13184,10 +13569,10 @@ index b83421d784cece6a719854fa66c2cc760d156f1c..b76a5f7df646c94ae3a338725688e23f
    AgentImageBlock,
 diff --git a/packages/heterogeneous-agents/src/protocol/serverAssistant.ts b/packages/heterogeneous-agents/src/protocol/serverAssistant.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..391a18b3bf2b3c68b66c81a0158ae233d8caf0b3
+index 0000000000000000000000000000000000000000..1a5109257a2932f2583bd2d2460d2881c4bcc6ad
 --- /dev/null
 +++ b/packages/heterogeneous-agents/src/protocol/serverAssistant.ts
-@@ -0,0 +1,48 @@
+@@ -0,0 +1,50 @@
 +import type { AgentStreamEvent } from '@lobechat/agent-gateway-client';
 +
 +import type { AgentPromptInput } from './types';
@@ -13219,6 +13604,8 @@ index 0000000000000000000000000000000000000000..391a18b3bf2b3c68b66c81a0158ae233
 +  leaseToken: string;
 +  operationId: string;
 +  request: ClaudeCodeAssistantRequest;
++  /** Server-side latency before the worker received this claim, for diagnostics only. */
++  timing?: { preparedMs: number; queuedMs: number };
 +}
 +
 +export interface ClaudeCodeWorkerEvent {
@@ -13341,16 +13728,17 @@ index 0000000000000000000000000000000000000000..f4fb1efca4a31a7c671a4a12a6f74f4c
 +});
 diff --git a/packages/heterogeneous-agents/src/spawn/assistantIntegration.ts b/packages/heterogeneous-agents/src/spawn/assistantIntegration.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..dba2cb802a57a97945735107e7cd907c7d8cf79c
+index 0000000000000000000000000000000000000000..e9ec663aec59669602f00708c95b7917143fc8e7
 --- /dev/null
 +++ b/packages/heterogeneous-agents/src/spawn/assistantIntegration.ts
-@@ -0,0 +1,96 @@
+@@ -0,0 +1,97 @@
 +import path from 'node:path';
 +
 +/** Ordinary LobeHub assistants use the user's saved CLI login, never API provider credentials. */
 +export type SpawnIntegrationMode = 'lobehub-assistant';
 +
 +const ASSISTANT_ENV_KEYS = new Set([
++  'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC',
 +  'CLAUDE_CONFIG_DIR',
 +  'COMSPEC',
 +  'HOME',
