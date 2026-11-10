@@ -1962,10 +1962,10 @@ index 0000000000000000000000000000000000000000..1830bdc3f14954bb31423fcc215c97f7
 +};
 diff --git a/apps/claude-code-worker/src/runTiming.test.ts b/apps/claude-code-worker/src/runTiming.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..0c24e042e8d7e0cfce3afb83d6dad43c9e5aa6ef
+index 0000000000000000000000000000000000000000..2d81eff2f7a070bf331a273378589bb55fe7ac3b
 --- /dev/null
 +++ b/apps/claude-code-worker/src/runTiming.test.ts
-@@ -0,0 +1,78 @@
+@@ -0,0 +1,87 @@
 +import { describe, expect, it } from 'vitest';
 +
 +import { RunTiming } from './runTiming';
@@ -1974,7 +1974,7 @@ index 0000000000000000000000000000000000000000..0c24e042e8d7e0cfce3afb83d6dad43c
 +
 +describe('RunTiming', () => {
 +  it('reports stage timings and first-request cache use without any content', () => {
-+    const timing = new RunTiming({ claimMs: 40, preparedMs: 300, queuedMs: 120 });
++    const timing = new RunTiming({ claimMs: 40, preparedMs: 300, queuedMs: 120 }, 900);
 +    timing.markSpawned(1000);
 +    const init = line({ subtype: 'init', type: 'system', model: 'secret-model-detail' });
 +    // A line split across chunks still counts once complete.
@@ -2037,6 +2037,7 @@ index 0000000000000000000000000000000000000000..0c24e042e8d7e0cfce3afb83d6dad43c
 +      firstTextMs: 1500,
 +      initMs: 600,
 +      inputTokens: 12,
++      preSpawnMs: 100,
 +      preparedMs: 300,
 +      queuedMs: 120,
 +      resultMs: 2000,
@@ -2044,12 +2045,20 @@ index 0000000000000000000000000000000000000000..0c24e042e8d7e0cfce3afb83d6dad43c
 +    expect(JSON.stringify(report)).not.toContain('private');
 +  });
 +});
++
++describe('RunTiming.measure', () => {
++  it('records how long a setup step took and returns its result', async () => {
++    const timing = new RunTiming();
++    expect(await timing.measure('toolsMs', () => 'registered')).toBe('registered');
++    expect(timing.toJSON().toolsMs).toEqual(expect.any(Number));
++  });
++});
 diff --git a/apps/claude-code-worker/src/runTiming.ts b/apps/claude-code-worker/src/runTiming.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..9399b8bce5c9060e1f53395e3d34445d06d43d03
+index 0000000000000000000000000000000000000000..68ff6fff2dcb6adbdb6418f69a7e1790d0c81aff
 --- /dev/null
 +++ b/apps/claude-code-worker/src/runTiming.ts
-@@ -0,0 +1,111 @@
+@@ -0,0 +1,131 @@
 +/**
 + * Per-run latency and prompt-cache diagnostics read from the CLI's raw
 + * stream-json. Only timestamps and token counts are kept: never content,
@@ -2067,7 +2076,11 @@ index 0000000000000000000000000000000000000000..9399b8bce5c9060e1f53395e3d34445d
 +  initMs?: number;
 +  inputTokens?: number;
 +  preparedMs?: number;
++  /** Worker setup from receiving the claim to starting the CLI. */
++  preSpawnMs?: number;
 +  queuedMs?: number;
++  /** Registering this turn's tools with the local MCP bridge. */
++  toolsMs?: number;
 +  /** CLI exit, from spawn. */
 +  exitMs?: number;
 +  /** Final result line, from spawn. */
@@ -2094,13 +2107,29 @@ index 0000000000000000000000000000000000000000..9399b8bce5c9060e1f53395e3d34445d
 +  private buffer = '';
 +  private readonly report: RunTimingReport;
 +  private spawnedAt = 0;
++  private readonly startedAt: number;
 +
-+  constructor(base: Pick<RunTimingReport, 'claimMs' | 'preparedMs' | 'queuedMs'> = {}) {
++  constructor(
++    base: Pick<RunTimingReport, 'claimMs' | 'preparedMs' | 'queuedMs'> = {},
++    now = Date.now(),
++  ) {
 +    this.report = { ...base };
++    this.startedAt = now;
++  }
++
++  /** Time a synchronous or awaited setup step. */
++  async measure<T>(key: 'toolsMs', step: () => T | Promise<T>): Promise<T> {
++    const started = Date.now();
++    try {
++      return await step();
++    } finally {
++      this.report[key] = Date.now() - started;
++    }
 +  }
 +
 +  markSpawned(now = Date.now()) {
 +    this.spawnedAt = now;
++    this.report.preSpawnMs = now - this.startedAt;
 +  }
 +
 +  /** Feed raw stdout; tolerant of chunks split mid-line and of non-JSON lines. */
@@ -2468,10 +2497,10 @@ index 0000000000000000000000000000000000000000..396e94a080d1878be14a137841caf0a9
 +});
 diff --git a/apps/claude-code-worker/src/runner.ts b/apps/claude-code-worker/src/runner.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..3d7ced82010678f1126be84314b7068f410c05df
+index 0000000000000000000000000000000000000000..4b4f0c38fc16191ca63ea54ef97a857a5b89db0c
 --- /dev/null
 +++ b/apps/claude-code-worker/src/runner.ts
-@@ -0,0 +1,274 @@
+@@ -0,0 +1,276 @@
 +import { randomUUID } from 'node:crypto';
 +import { mkdir, rm, writeFile } from 'node:fs/promises';
 +import path from 'node:path';
@@ -2511,6 +2540,11 @@ index 0000000000000000000000000000000000000000..3d7ced82010678f1126be84314b7068f
 +  deps: RunnerDependencies,
 +): Promise<void> => {
 +  const { api, config, mcp, signal } = deps;
++  const timing = new RunTiming({
++    claimMs: deps.claimMs,
++    preparedMs: claim.timing?.preparedMs,
++    queuedMs: claim.timing?.queuedMs,
++  });
 +  const box = await RunOutbox.create(config.stateDir, claim);
 +  const systemPromptFile = path.join(box.directory, 'system-prompt.txt');
 +  const results = new Map<string, ClaudeCodeWorkerToolResult>();
@@ -2521,11 +2555,6 @@ index 0000000000000000000000000000000000000000..3d7ced82010678f1126be84314b7068f
 +  let stepIndex = 0;
 +  let streamFailed = false;
 +  let streamInterrupted = false;
-+  const timing = new RunTiming({
-+    claimMs: deps.claimMs,
-+    preparedMs: claim.timing?.preparedMs,
-+    queuedMs: claim.timing?.queuedMs,
-+  });
 +  // Deliver the first event of a burst at once; the 250ms tick only batches what
 +  // arrives while a delivery is already in flight.
 +  let kickDelivery: (() => void) | undefined;
@@ -2628,36 +2657,38 @@ index 0000000000000000000000000000000000000000..3d7ced82010678f1126be84314b7068f
 +    const cwd = config.workspaceDir;
 +    await mkdir(cwd, { mode: 0o700, recursive: true });
 +    lease.controller.signal.throwIfAborted();
-+    mcp.registerOperation(claim.operationId, bridge, {
-+      tools: claim.request.tools.map((tool) => ({
-+        description: tool.description,
-+        handler: async ({ operationId, toolCallId }, args) => {
-+          if (operationId !== claim.operationId) throw new Error('MCP operation mismatch');
-+          const result = await awaitToolResult(
-+            api,
-+            operationId,
-+            {
-+              args,
-+              leaseToken: claim.leaseToken,
-+              name: tool.name,
-+              toolCallId,
-+            },
-+            lease.controller.signal,
-+          );
-+          results.set(toolCallId, result);
-+          return result;
-+        },
-+        inputSchema: tool.inputSchema,
-+        name: tool.name,
-+      })),
-+      // One plugin's unusable schema must not cost the whole turn; the model
-+      // simply does not see that tool, and the server still validates calls.
-+      onInvalidTool: (name, error) =>
-+        console.error(
-+          `Claude Code tool left out of this run: ${name}:`,
-+          error instanceof Error ? error.message : 'invalid schema',
-+        ),
-+    });
++    await timing.measure('toolsMs', () =>
++      mcp.registerOperation(claim.operationId, bridge, {
++        tools: claim.request.tools.map((tool) => ({
++          description: tool.description,
++          handler: async ({ operationId, toolCallId }, args) => {
++            if (operationId !== claim.operationId) throw new Error('MCP operation mismatch');
++            const result = await awaitToolResult(
++              api,
++              operationId,
++              {
++                args,
++                leaseToken: claim.leaseToken,
++                name: tool.name,
++                toolCallId,
++              },
++              lease.controller.signal,
++            );
++            results.set(toolCallId, result);
++            return result;
++          },
++          inputSchema: tool.inputSchema,
++          name: tool.name,
++        })),
++        // One plugin's unusable schema must not cost the whole turn; the model
++        // simply does not see that tool, and the server still validates calls.
++        onInvalidTool: (name, error) =>
++          console.error(
++            `Claude Code tool left out of this run: ${name}:`,
++            error instanceof Error ? error.message : 'invalid schema',
++          ),
++      }),
++    );
 +    const extraArgs = [
 +      '--mcp-config',
 +      JSON.stringify({
@@ -13455,12 +13486,58 @@ index 21af3dbdebc7515cef6c9b6f81668cf3b21855e9..d4e38a62a476f4b1f23df91b2eb42727
 +  McpOperationTool,
 +  McpOperationToolContext,
 +} from './operationTools';
+diff --git a/packages/heterogeneous-agents/src/builtinMcp/operationTools.test.ts b/packages/heterogeneous-agents/src/builtinMcp/operationTools.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..e616c3a7fd5ac072d9e05e2040dc79bb20a29512
+--- /dev/null
++++ b/packages/heterogeneous-agents/src/builtinMcp/operationTools.test.ts
+@@ -0,0 +1,40 @@
++import { describe, expect, it, vi } from 'vitest';
++
++import { type McpOperationTool, prepareMcpOperationTools } from './operationTools';
++
++const tool = (name: string, inputSchema: Record<string, unknown>): McpOperationTool => ({
++  description: name,
++  handler: async () => ({ content: [] }),
++  inputSchema: inputSchema as McpOperationTool['inputSchema'],
++  name,
++});
++
++describe('prepareMcpOperationTools', () => {
++  it('reuses the compiled contract when the next turn sends the same schema', () => {
++    const schema = { properties: { q: { format: 'uri', type: 'string' } }, type: 'object' };
++    const [first] = prepareMcpOperationTools([tool('search', schema)], false);
++    const [second] = prepareMcpOperationTools([tool('search', structuredClone(schema))], false);
++    expect(second.inputSchema).toBe(first.inputSchema);
++    // A changed schema is compiled on its own, never served from another one.
++    const [changed] = prepareMcpOperationTools(
++      [tool('search', { ...schema, required: ['q'] })],
++      false,
++    );
++    expect(changed.inputSchema).not.toBe(first.inputSchema);
++  });
++
++  it('accepts schemas that reuse one $id and still reports a broken schema', () => {
++    const onInvalidTool = vi.fn();
++    const prepared = prepareMcpOperationTools(
++      [
++        tool('a', { $id: 'shared', properties: { x: { type: 'string' } }, type: 'object' }),
++        tool('b', { $id: 'shared', properties: { y: { type: 'number' } }, type: 'object' }),
++        tool('broken', { properties: { z: { type: 'no-such-type' } }, type: 'object' }),
++      ],
++      false,
++      onInvalidTool,
++    );
++    expect(prepared.map(({ name }) => name)).toEqual(['a', 'b']);
++    expect(onInvalidTool).toHaveBeenCalledWith('broken', expect.any(Error));
++  });
++});
 diff --git a/packages/heterogeneous-agents/src/builtinMcp/operationTools.ts b/packages/heterogeneous-agents/src/builtinMcp/operationTools.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..6480c508ee3e902e16b5d9247ba22164e03769dc
+index 0000000000000000000000000000000000000000..cae9dfd0a098a187e2a6279f56be0cf7f09f5919
 --- /dev/null
 +++ b/packages/heterogeneous-agents/src/builtinMcp/operationTools.ts
-@@ -0,0 +1,94 @@
+@@ -0,0 +1,127 @@
 +import { fromJsonSchema } from '@modelcontextprotocol/server';
 +import {
 +  addFormats,
@@ -13508,6 +13585,47 @@ index 0000000000000000000000000000000000000000..6480c508ee3e902e16b5d9247ba22164
 +  inputSchema: ReturnType<typeof fromJsonSchema<Record<string, unknown>>>;
 +}
 +
++type PreparedInputSchema = PreparedMcpOperationTool['inputSchema'];
++
++const AJV_OPTIONS = { allErrors: true, allowUnionTypes: true, strict: false } as const;
++const MAX_CACHED_SCHEMAS = 2000;
++
++let sharedAjv: InstanceType<typeof Ajv> | undefined;
++/** Compiled input contracts by schema content; an assistant sends the same tools every turn. */
++const preparedSchemas = new Map<string, PreparedInputSchema>();
++
++const createAjv = () => {
++  const ajv = new Ajv(AJV_OPTIONS);
++  addFormats(ajv);
++  return ajv;
++};
++
++/**
++ * Building an Ajv instance (meta-schemas, formats) costs far more than compiling
++ * one tool schema, and a turn can carry hundreds of tools. One instance serves
++ * every schema; a schema that cannot share it (say, a reused `$id`) gets its own.
++ */
++const compileInputSchema = (schema: Record<string, unknown>): PreparedInputSchema => {
++  const key = JSON.stringify(schema);
++  const cached = preparedSchemas.get(key);
++  if (cached) return cached;
++
++  let ajv = (sharedAjv ??= createAjv());
++  try {
++    ajv.compile(schema);
++  } catch {
++    ajv = createAjv();
++    // A schema that is invalid on its own still fails here, as before.
++    ajv.compile(schema);
++  }
++  const prepared = fromJsonSchema<Record<string, unknown>>(schema, new AjvJsonSchemaValidator(ajv));
++  if (preparedSchemas.size >= MAX_CACHED_SCHEMAS) {
++    preparedSchemas.delete(preparedSchemas.keys().next().value!);
++  }
++  preparedSchemas.set(key, prepared);
++  return prepared;
++};
++
 +/**
 + * Preserve the existing JSON Schema without translating away constraints.
 + * Every standard keyword still validates. Ajv's strict mode is only an
@@ -13537,17 +13655,9 @@ index 0000000000000000000000000000000000000000..6480c508ee3e902e16b5d9247ba22164
 +        throw new Error(`MCP operation tool ${tool.name} requires an object input schema`);
 +      }
 +
-+      const ajv = new Ajv({ allErrors: true, allowUnionTypes: true, strict: false });
-+      addFormats(ajv);
-+      ajv.compile(schema);
++      const inputSchema = compileInputSchema(schema);
 +      names.add(tool.name);
-+      prepared.push({
-+        ...tool,
-+        inputSchema: fromJsonSchema<Record<string, unknown>>(
-+          schema,
-+          new AjvJsonSchemaValidator(ajv),
-+        ),
-+      });
++      prepared.push({ ...tool, inputSchema });
 +    } catch (error) {
 +      if (!onInvalidTool) throw error;
 +      onInvalidTool(tool.name, error);

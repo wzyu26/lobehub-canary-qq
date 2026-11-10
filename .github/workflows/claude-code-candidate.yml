@@ -112,7 +112,7 @@ jobs:
         run: pnpm exec vitest run src/durableEventGuard.test.ts src/client.test.ts src/mux/GatewayMuxClient.test.ts
       - name: Shared MCP and launcher regression
         working-directory: source/packages/heterogeneous-agents
-        run: pnpm exec vitest run src/spawn src/builtinMcp/LobeBuiltinMcpServer.operationTools.test.ts
+        run: pnpm exec vitest run src/spawn src/builtinMcp/LobeBuiltinMcpServer.operationTools.test.ts src/builtinMcp/operationTools.test.ts
       - name: Persistent state and isolation
         working-directory: source/packages/database
         run: pnpm exec vitest run src/models/__tests__/claudeCode.test.ts
