@@ -4930,24 +4930,52 @@ index be9a38b5fc469635e7a9e382f427912dcae0d297..e6286d249b8baeb59356f659737c227b
        // Mobile. OSS returns `handled:false` and preserves the legacy stream
        // publish below. A claimed response is authoritative: client-supplied
 diff --git a/apps/server/src/routers/lambda/aiProvider.ts b/apps/server/src/routers/lambda/aiProvider.ts
-index c8036c4e6465a831feae2b38fb7d68cfe54f1023..8cdf855897c53ce5721b8cba6d5b915440ec5e46 100644
+index c8036c4e6465a831feae2b38fb7d68cfe54f1023..5f5d3ac5ee6f1292d876b2f1403d88c220734362 100644
 --- a/apps/server/src/routers/lambda/aiProvider.ts
 +++ b/apps/server/src/routers/lambda/aiProvider.ts
-@@ -24,6 +24,8 @@ import { getServerGlobalConfig } from '@/server/globalConfig';
+@@ -7,6 +7,7 @@ import {
+ } from '@lobechat/heterogeneous-agents';
+ import { RequestTrigger } from '@lobechat/types';
+ import { TRPCError } from '@trpc/server';
++import { ModelProvider } from 'model-bank/modelProvider';
+ import { z } from 'zod';
+ 
+ import { withScopedPermission } from '@/business/server/trpc-middlewares/rbacPermission';
+@@ -24,6 +25,13 @@ import { getServerGlobalConfig } from '@/server/globalConfig';
  import { initModelRuntimeForRequest } from '@/server/modules/AgentRuntime/llmRelay/oneShot';
  import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
  import { getUserScopedAiProviderRuntimeState } from '@/server/services/aiProviderAccess';
-+import { withClaudeCodeModels } from '@/server/services/claudeCode/runtimeState';
++import {
++  isClaudeCodeListed,
++  withClaudeCodeListed,
++  withClaudeCodeModels,
++  withClaudeCodeProviderEntry,
++} from '@/server/services/claudeCode/runtimeState';
 +import { getClaudeCodeStatus } from '@/server/services/claudeCode/status';
  import { type AiProviderDetailItem, type AiProviderRuntimeState } from '@/types/aiProvider';
  import {
    CreateAiProviderSchema,
-@@ -185,15 +187,22 @@ export const aiProviderRouter = router({
+@@ -179,21 +187,39 @@ export const aiProviderRouter = router({
+     }),
+ 
+   getAiProviderList: aiProviderProcedure.query(async ({ ctx }) => {
+-    return await ctx.aiInfraRepos.getAiProviderList();
++    const [list, claudeCode, claudeCodeRow] = await Promise.all([
++      ctx.aiInfraRepos.getAiProviderList(),
++      // A worker problem must not take the provider settings down with it.
++      getClaudeCodeStatus(ctx.serverDB, ctx.userId, ctx.workspaceId ?? undefined).catch(
++        () => undefined,
++      ),
++      ctx.aiProviderModel.findById(ModelProvider.ClaudeCode).catch(() => undefined),
++    ]);
++    return withClaudeCodeProviderEntry(list, claudeCode, claudeCodeRow?.config);
+   }),
+ 
    getAiProviderRuntimeState: aiProviderProcedure
      .input(z.object({ isLogin: z.boolean().optional() }))
      .query(async ({ ctx }): Promise<AiProviderRuntimeState> => {
 -      const [scopedState, modelReasoningConfigs] = await Promise.all([
-+      const [scopedState, modelReasoningConfigs, claudeCode] = await Promise.all([
++      const [scopedState, modelReasoningConfigs, claudeCode, claudeCodeRow] = await Promise.all([
          getUserScopedAiProviderRuntimeState(ctx.userId, () =>
            ctx.aiInfraRepos.getAiProviderRuntimeState(KeyVaultsGateKeeper.getUserKeyVaults),
          ),
@@ -4958,26 +4986,49 @@ index c8036c4e6465a831feae2b38fb7d68cfe54f1023..8cdf855897c53ce5721b8cba6d5b9154
 +        getClaudeCodeStatus(ctx.serverDB, ctx.userId, ctx.workspaceId ?? undefined).catch(
 +          () => undefined,
 +        ),
++        ctx.aiProviderModel.findById(ModelProvider.ClaudeCode).catch(() => undefined),
        ]);
 -      const state = { ...scopedState, modelReasoningConfigs };
 +      const state = {
-+        ...(claudeCode ? withClaudeCodeModels(scopedState, claudeCode) : scopedState),
++        ...(claudeCode
++          ? withClaudeCodeModels(scopedState, claudeCode, isClaudeCodeListed(claudeCodeRow?.config))
++          : scopedState),
 +        modelReasoningConfigs,
 +      };
        const providerBindingAgentTypes = resolveProviderBindingAgentTypes(state);
  
        // restricted API keys must not exfiltrate decrypted provider credentials
+@@ -286,7 +312,15 @@ export const aiProviderRouter = router({
+         });
+       }
+ 
+-      return ctx.aiProviderModel.toggleProviderEnabled(input.id, input.enabled);
++      const result = await ctx.aiProviderModel.toggleProviderEnabled(input.id, input.enabled);
++      if (input.id === ModelProvider.ClaudeCode) {
++        // Only this switch decides whether the worker's models are listed.
++        const row = await ctx.aiProviderModel.findById(input.id);
++        await ctx.aiProviderModel.update(input.id, {
++          config: withClaudeCodeListed(row?.config, input.enabled),
++        });
++      }
++      return result;
+     }),
+ 
+   updateAiProvider: aiProviderProcedure
 diff --git a/apps/server/src/routers/lambda/claudeCode.ts b/apps/server/src/routers/lambda/claudeCode.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..07ee7272b8eff069ef4447dfaab2f221da190e03
+index 0000000000000000000000000000000000000000..8564e591deb0769dbe1943382ce75980325157f7
 --- /dev/null
 +++ b/apps/server/src/routers/lambda/claudeCode.ts
-@@ -0,0 +1,25 @@
+@@ -0,0 +1,35 @@
++import { ModelProvider } from 'model-bank/modelProvider';
 +import { z } from 'zod';
 +
++import { AiProviderModel } from '@/database/models/aiProvider';
 +import { authedProcedure, router } from '@/libs/trpc/lambda';
 +import { serverDatabase } from '@/libs/trpc/lambda/middleware';
 +import { cancelClaudeCodeRun } from '@/server/services/claudeCode/cancel';
++import { isClaudeCodeListed } from '@/server/services/claudeCode/runtimeState';
 +import { getClaudeCodeStatus } from '@/server/services/claudeCode/status';
 +
 +const claudeCodeProcedure = authedProcedure.use(serverDatabase);
@@ -4994,9 +5045,16 @@ index 0000000000000000000000000000000000000000..07ee7272b8eff069ef4447dfaab2f221
 +      });
 +      return { status: run?.status ?? 'not_found' };
 +    }),
-+  status: claudeCodeProcedure.query(({ ctx }) =>
-+    getClaudeCodeStatus(ctx.serverDB, ctx.userId, ctx.workspaceId ?? undefined),
-+  ),
++  status: claudeCodeProcedure.query(async ({ ctx }) => {
++    const workspaceId = ctx.workspaceId ?? undefined;
++    const [status, row] = await Promise.all([
++      getClaudeCodeStatus(ctx.serverDB, ctx.userId, workspaceId),
++      new AiProviderModel(ctx.serverDB, ctx.userId, workspaceId)
++        .findById(ModelProvider.ClaudeCode)
++        .catch(() => undefined),
++    ]);
++    return { ...status, listed: isClaudeCodeListed(row?.config) };
++  }),
 +});
 diff --git a/apps/server/src/routers/lambda/index.ts b/apps/server/src/routers/lambda/index.ts
 index c44cce46b91abcbdd8d538cfc373d6db85881765..b05008cd6a83e3fafadd108d61f3da84656a4bef 100644
@@ -9860,15 +9918,20 @@ index 0000000000000000000000000000000000000000..bf21a99c48ea3aebcf9eb31b24cfdc63
 +  });
 diff --git a/apps/server/src/services/claudeCode/runtimeState.test.ts b/apps/server/src/services/claudeCode/runtimeState.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..23da6f3d455fc977616cd0d44e640051b68c6344
+index 0000000000000000000000000000000000000000..c8f035119edf7de6c35185f3db98a6d5a46b95dd
 --- /dev/null
 +++ b/apps/server/src/services/claudeCode/runtimeState.test.ts
-@@ -0,0 +1,38 @@
+@@ -0,0 +1,87 @@
 +import { describe, expect, it } from 'vitest';
 +
 +import type { AiProviderRuntimeState } from '@/types/aiProvider';
 +
-+import { withClaudeCodeModels } from './runtimeState';
++import {
++  isClaudeCodeListed,
++  withClaudeCodeListed,
++  withClaudeCodeModels,
++  withClaudeCodeProviderEntry,
++} from './runtimeState';
 +
 +const state = {
 +  enabledAiModels: [],
@@ -9901,22 +9964,117 @@ index 0000000000000000000000000000000000000000..23da6f3d455fc977616cd0d44e640051
 +  it('adds nothing for an account without an enabled worker', () => {
 +    expect(withClaudeCodeModels(state, { ...status, enabled: false })).toBe(state);
 +  });
++
++  it('adds nothing once the provider is switched off in settings', () => {
++    expect(withClaudeCodeModels(state, status, false)).toBe(state);
++  });
++});
++
++describe('Claude Code in the provider settings', () => {
++  const list = [
++    { enabled: true, id: 'openai', source: 'builtin' as const },
++    // Rows a deployment does not offer: no card, so they render blank.
++    { enabled: false, id: 'lobehub', source: 'builtin' as const },
++    { enabled: false, id: 'claude-code', sort: 3, source: 'builtin' as const },
++    { enabled: true, id: 'my-proxy', name: 'My proxy', source: 'custom' as const },
++  ];
++
++  it('lists the backend by name and drops builtin rows without a card', () => {
++    const result = withClaudeCodeProviderEntry(list, status, undefined);
++    expect(result.map(({ id }) => id)).toEqual(['openai', 'my-proxy', 'claude-code']);
++    expect(result.at(-1)).toMatchObject({
++      enabled: true,
++      name: 'Claude Code (server)',
++      sort: 3,
++      source: 'builtin',
++    });
++    expect(result.at(-1)?.description).toBeTruthy();
++  });
++
++  it('follows only the settings switch, not the row a visit created as disabled', () => {
++    expect(isClaudeCodeListed(undefined)).toBe(true);
++    expect(isClaudeCodeListed({})).toBe(true);
++    const off = withClaudeCodeListed({ other: 1 }, false);
++    expect(off).toEqual({ claudeCodeListed: false, other: 1 });
++    expect(isClaudeCodeListed(off)).toBe(false);
++    expect(withClaudeCodeProviderEntry(list, status, off).at(-1)?.enabled).toBe(false);
++    expect(isClaudeCodeListed(withClaudeCodeListed(off, true))).toBe(true);
++  });
++
++  it('shows no entry for an account without a worker', () => {
++    expect(
++      withClaudeCodeProviderEntry(list, { ...status, enabled: false }, undefined).map(
++        ({ id }) => id,
++      ),
++    ).toEqual(['openai', 'my-proxy']);
++  });
 +});
 diff --git a/apps/server/src/services/claudeCode/runtimeState.ts b/apps/server/src/services/claudeCode/runtimeState.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..b40251ce8d255e9ea06e8cf91900a7e82da905fe
+index 0000000000000000000000000000000000000000..ac3ca703716c5974fb430ac96f8b6d20909f8e9d
 --- /dev/null
 +++ b/apps/server/src/services/claudeCode/runtimeState.ts
-@@ -0,0 +1,44 @@
+@@ -0,0 +1,96 @@
 +import { ModelProvider } from 'model-bank/modelProvider';
++import { DEFAULT_MODEL_PROVIDER_LIST } from 'model-bank/modelProviders';
++import { claudeCodeProvider } from 'model-bank/modelProviders/claude-code';
 +
-+import type { AiProviderRuntimeState } from '@/types/aiProvider';
++import type {
++  AiProviderConfig,
++  AiProviderListItem,
++  AiProviderRuntimeState,
++} from '@/types/aiProvider';
 +
 +import type { getClaudeCodeStatus } from './status';
 +
-+const PROVIDER_NAME = 'Claude Code (server)';
++const PROVIDER_NAME = claudeCodeProvider.name;
 +
 +type ClaudeCodeStatus = Awaited<ReturnType<typeof getClaudeCodeStatus>>;
++
++/**
++ * Whether the account lists its worker models. Kept in the provider row's
++ * `config`, not its `enabled` column: opening any provider creates its row with
++ * `enabled: false`, which must not hide a backend nobody switched off.
++ */
++export const isClaudeCodeListed = (config: unknown): boolean =>
++  (config as { claudeCodeListed?: unknown } | null | undefined)?.claudeCodeListed !== false;
++
++/** The provider row's `config` after the settings switch is turned on or off. */
++export const withClaudeCodeListed = (
++  config: unknown,
++  listed: boolean,
++): AiProviderConfig & { claudeCodeListed: boolean } => ({
++  ...(config && typeof config === 'object' ? (config as AiProviderConfig) : {}),
++  claudeCodeListed: listed,
++});
++
++/**
++ * The settings provider list. A builtin row whose provider this deployment does
++ * not offer (the LobeHub cloud provider on a self-hosted instance, or this
++ * backend before it is set up) has no card and would show as a blank entry. The
++ * Claude Code backend is listed under its own name once the account has a worker.
++ */
++export const withClaudeCodeProviderEntry = (
++  list: AiProviderListItem[],
++  status: ClaudeCodeStatus | undefined,
++  config: unknown,
++): AiProviderListItem[] => {
++  const offered = new Set(DEFAULT_MODEL_PROVIDER_LIST.map(({ id }) => id));
++  const kept = list.filter((item) => item.source !== 'builtin' || offered.has(item.id));
++  if (!status?.enabled) return kept;
++  const row = list.find((item) => item.id === ModelProvider.ClaudeCode);
++  return [
++    ...kept,
++    {
++      description: claudeCodeProvider.description,
++      enabled: isClaudeCodeListed(config),
++      id: ModelProvider.ClaudeCode,
++      name: PROVIDER_NAME,
++      sort: row?.sort,
++      source: 'builtin',
++    },
++  ];
++};
 +
 +/**
 + * Serve the account's worker models with the ordinary model list, so a client without its own
@@ -9925,8 +10083,9 @@ index 0000000000000000000000000000000000000000..b40251ce8d255e9ea06e8cf91900a7e8
 +export const withClaudeCodeModels = (
 +  state: AiProviderRuntimeState,
 +  status: ClaudeCodeStatus,
++  listed = true,
 +): AiProviderRuntimeState => {
-+  if (!status.enabled || status.models.length === 0) return state;
++  if (!listed || !status.enabled || status.models.length === 0) return state;
 +
 +  const provider = {
 +    id: ModelProvider.ClaudeCode,
@@ -10986,13 +11145,30 @@ index 5850d5d149875a21ccbdf75b29e917625a2d2b88..092615211eca8f468513733eb2816fd4
    id uuid [pk, not null, default: `gen_random_uuid()`]
    user_connector_id uuid [not null]
 diff --git a/locales/en-US/chat.json b/locales/en-US/chat.json
-index 129775f8a6ef4d1d77bec452250cc8f08504aac3..6fadd5c77746dfe6c0f29e7398355ea56f74a572 100644
+index 129775f8a6ef4d1d77bec452250cc8f08504aac3..61a603d8127e75ef47b752d21893d2330c153f3c 100644
 --- a/locales/en-US/chat.json
 +++ b/locales/en-US/chat.json
-@@ -134,6 +134,14 @@
+@@ -134,6 +134,31 @@
    "claudeCodeInstallGuide.menuNotification.title": "Claude Code CLI not found",
    "claudeCodeInstallGuide.reason": "LobeHub could not start Claude Code: {{message}}",
    "claudeCodeInstallGuide.title": "Install Claude Code CLI",
++  "claudeCodeProvider": {
++    "worker": "Server worker",
++    "workerDesc": "The Claude Code process your administrator set up for your account on this server.",
++    "online": "Online",
++    "offline": "Offline",
++    "authTitle": "Claude account",
++    "authDesc": "To sign in again, run claude auth login in your assigned server environment.",
++    "auth.logged_in": "Signed in",
++    "auth.logged_out": "Not signed in",
++    "auth.expired": "Sign-in expired",
++    "auth.unknown": "Unknown",
++    "cliVersion": "Claude Code version",
++    "models": "Models",
++    "modelsDesc": "Reported by the worker; no API key is needed. Turn this provider off to hide them from the model picker.",
++    "modelsHidden": "This provider is off, so these models are hidden from the model picker.",
++    "noModels": "The worker has not reported any models yet."
++  },
 +  "claudeCodeServer": {
 +    "name": "Claude Code (server)",
 +    "checking": "Checking your server Claude Code connection…",
@@ -11005,27 +11181,42 @@ index 129775f8a6ef4d1d77bec452250cc8f08504aac3..6fadd5c77746dfe6c0f29e7398355ea5
    "cliAuthGuide.actions.openCloudCredentials": "Update Cloud Token",
    "cliAuthGuide.actions.openDocs": "Open Sign-in Guide",
 diff --git a/locales/en-US/providers.json b/locales/en-US/providers.json
-index 59ad5d0f6f9b46acc045aa3f1962f9d2d581da83..1bed9b59413cc7ffb9a28766a49e1be247440256 100644
+index 59ad5d0f6f9b46acc045aa3f1962f9d2d581da83..4a87275f95b9f6f8b936726d52b42bc4f397e72c 100644
 --- a/locales/en-US/providers.json
 +++ b/locales/en-US/providers.json
-@@ -14,6 +14,9 @@
+@@ -14,6 +14,7 @@
    "bfl.description": "A leading frontier AI research lab building the visual infrastructure of tomorrow.",
    "cerebras.description": "Cerebras is an inference platform built on its CS-3 system, focused on ultra-low latency and high-throughput LLM service for real-time workloads like code generation and agent tasks.",
    "chatgpt.description": "Use models included with your ChatGPT subscription through Codex, without an OpenAI Platform API key.",
-+  "claude-code": {
-+    "description": "Use your Claude account through Claude Code running on your assigned server."
-+  },
++  "claude-code.description": "Use your Claude account through Claude Code running on your assigned server.",
    "cloudflare.description": "Run serverless GPU-powered ML models across Cloudflare’s global network.",
    "cohere.description": "Cohere delivers cutting-edge multilingual models, advanced retrieval, and AI workspaces for modern enterprises—all in one secure platform.",
    "cometapi.description": "CometAPI provides access to frontier models from OpenAI, Anthropic, Google, and more, letting users choose the best model and pricing for diverse use cases.",
 diff --git a/locales/zh-CN/chat.json b/locales/zh-CN/chat.json
-index 07bd24397fc241dba41ce12910616ae2dd838847..d9e051f850f94fb25def3c58b5338fd419374b03 100644
+index 07bd24397fc241dba41ce12910616ae2dd838847..83b527fe2678f2c5e197b8518b734f68c2a27ac2 100644
 --- a/locales/zh-CN/chat.json
 +++ b/locales/zh-CN/chat.json
-@@ -134,6 +134,14 @@
+@@ -134,6 +134,31 @@
    "claudeCodeInstallGuide.menuNotification.title": "未找到 Claude Code CLI",
    "claudeCodeInstallGuide.reason": "LobeHub 无法启动 Claude Code：{{message}}",
    "claudeCodeInstallGuide.title": "安装 Claude Code CLI",
++  "claudeCodeProvider": {
++    "worker": "服务器 worker",
++    "workerDesc": "管理员在这台服务器上为你的账户配置的 Claude Code 进程。",
++    "online": "在线",
++    "offline": "离线",
++    "authTitle": "Claude 账号",
++    "authDesc": "需要重新登录时，在分配给你的服务器环境中运行 claude auth login。",
++    "auth.logged_in": "已登录",
++    "auth.logged_out": "未登录",
++    "auth.expired": "登录已过期",
++    "auth.unknown": "未知",
++    "cliVersion": "Claude Code 版本",
++    "models": "模型",
++    "modelsDesc": "由 worker 上报，无需 API Key。关闭此服务商后，模型选择器里不再显示这些模型。",
++    "modelsHidden": "此服务商已关闭，这些模型不会出现在模型选择器里。",
++    "noModels": "worker 还没有上报可用模型。"
++  },
 +  "claudeCodeServer": {
 +    "name": "Claude Code（服务器）",
 +    "checking": "正在检查服务器上的 Claude Code 连接…",
@@ -11038,16 +11229,14 @@ index 07bd24397fc241dba41ce12910616ae2dd838847..d9e051f850f94fb25def3c58b5338fd4
    "cliAuthGuide.actions.openCloudCredentials": "更新云端 Token",
    "cliAuthGuide.actions.openDocs": "打开登录指南",
 diff --git a/locales/zh-CN/providers.json b/locales/zh-CN/providers.json
-index e1f4a14f6fd027bdbb1750e0abd175fb7245df4b..e108a495f64cdb5fecbc78933101852b83ad3e2d 100644
+index e1f4a14f6fd027bdbb1750e0abd175fb7245df4b..ff137ea91a9ca76e7aa1c4e94507d4a0c7b7da51 100644
 --- a/locales/zh-CN/providers.json
 +++ b/locales/zh-CN/providers.json
-@@ -14,6 +14,9 @@
+@@ -14,6 +14,7 @@
    "bfl.description": "一家前沿 AI 研究实验室，致力于构建未来的视觉基础设施。",
    "cerebras.description": "Cerebras 是基于其 CS-3 系统构建的推理平台，专注于超低延迟和高吞吐量的大模型服务，适用于代码生成和智能体等实时任务。",
    "chatgpt.description": "通过 Codex 使用包含在您的 ChatGPT 订阅中的模型，无需 OpenAI 平台 API 密钥。",
-+  "claude-code": {
-+    "description": "通过分配给你的服务器环境，使用你自己的 Claude 账户运行 Claude Code。"
-+  },
++  "claude-code.description": "通过分配给你的服务器环境，使用你自己的 Claude 账户运行 Claude Code。",
    "cloudflare.description": "在 Cloudflare 全球网络上运行无服务器、GPU 加速的机器学习模型。",
    "cohere.description": "Cohere 提供前沿的多语言模型、先进的检索能力和 AI 工作空间，为现代企业提供一体化、安全的平台。",
    "cometapi.description": "CometAPI 提供对 OpenAI、Anthropic、Google 等前沿模型的访问，用户可根据不同需求选择最优模型与价格。",
@@ -15062,13 +15251,32 @@ index 93c09b2ccec62f715af66160b346e884fe6d3302..0533ed8de5e0f35b4255b7fc88231ffa
  };
  
 diff --git a/packages/locales/src/default/chat.ts b/packages/locales/src/default/chat.ts
-index 2345c8b088327673d1d4f67248b5203812b4986e..7e8710adff6f2849692d25600eaca9ce41efaf23 100644
+index 2345c8b088327673d1d4f67248b5203812b4986e..5899b536539e349de2d22bbc4716e7abbb374b15 100644
 --- a/packages/locales/src/default/chat.ts
 +++ b/packages/locales/src/default/chat.ts
-@@ -5,6 +5,16 @@ export default {
+@@ -5,6 +5,35 @@ export default {
    'directMention.progress.usingTool': 'Using {{name}}…',
    'directMention.progress.viewFullRecord': 'View full record',
    'sharePage.app.linkCopied': 'Link copied',
++  'claudeCodeProvider.worker': 'Server worker',
++  'claudeCodeProvider.workerDesc':
++    'The Claude Code process your administrator set up for your account on this server.',
++  'claudeCodeProvider.online': 'Online',
++  'claudeCodeProvider.offline': 'Offline',
++  'claudeCodeProvider.authTitle': 'Claude account',
++  'claudeCodeProvider.authDesc':
++    'To sign in again, run claude auth login in your assigned server environment.',
++  'claudeCodeProvider.auth.logged_in': 'Signed in',
++  'claudeCodeProvider.auth.logged_out': 'Not signed in',
++  'claudeCodeProvider.auth.expired': 'Sign-in expired',
++  'claudeCodeProvider.auth.unknown': 'Unknown',
++  'claudeCodeProvider.cliVersion': 'Claude Code version',
++  'claudeCodeProvider.models': 'Models',
++  'claudeCodeProvider.modelsDesc':
++    'Reported by the worker; no API key is needed. Turn this provider off to hide them from the model picker.',
++  'claudeCodeProvider.modelsHidden':
++    'This provider is off, so these models are hidden from the model picker.',
++  'claudeCodeProvider.noModels': 'The worker has not reported any models yet.',
 +  'claudeCodeServer.name': 'Claude Code (server)',
 +  'claudeCodeServer.checking': 'Checking your server Claude Code connection\u2026',
 +  'claudeCodeServer.disabled':
@@ -15398,10 +15606,10 @@ index 0000000000000000000000000000000000000000..453ec738ea45a52e60c9a7d06b90a2c2
 +});
 diff --git a/packages/types/src/assistantRuntime.ts b/packages/types/src/assistantRuntime.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..e6b35da2ad10858a93f2e5174b238262ffd831ce
+index 0000000000000000000000000000000000000000..09324dca111423d498dba87e330eb323fe5957c4
 --- /dev/null
 +++ b/packages/types/src/assistantRuntime.ts
-@@ -0,0 +1,15 @@
+@@ -0,0 +1,17 @@
 +import type { AssistantRuntimeBackend, ClaudeCodeAuthStatus } from './claudeCode';
 +
 +/** The ordinary assistant chooses an executor after preparing its context. */
@@ -15415,6 +15623,8 @@ index 0000000000000000000000000000000000000000..e6b35da2ad10858a93f2e5174b238262
 +  available: boolean;
 +  cliVersion?: string;
 +  enabled: boolean;
++  /** False once the owner switched the provider off in settings: models stay out of pickers. */
++  listed?: boolean;
 +  models: Array<{ displayName: string; id: string }>;
 +}
 diff --git a/packages/types/src/claudeCode.ts b/packages/types/src/claudeCode.ts
@@ -15869,12 +16079,147 @@ index c8d28f2f6e1e581aae3a875482d12e64936c86df..27e219eacc9aac257d6fc5df3a60fefc
  
    const findBuiltin = (id: string, providerId?: string) =>
      builtinAiModelList.find(
+diff --git a/src/features/Settings/provider/detail/claudeCode/index.tsx b/src/features/Settings/provider/detail/claudeCode/index.tsx
+new file mode 100644
+index 0000000000000000000000000000000000000000..d5017470af45d9ad6dbf8cf1da48f24146c8c566
+--- /dev/null
++++ b/src/features/Settings/provider/detail/claudeCode/index.tsx
+@@ -0,0 +1,104 @@
++'use client';
++
++import { Flexbox, Tag, Text } from '@lobehub/ui';
++import { ModelProvider } from 'model-bank/modelProvider';
++import { claudeCodeProvider } from 'model-bank/modelProviders/claude-code';
++import { memo, type ReactNode, useEffect } from 'react';
++import { useTranslation } from 'react-i18next';
++
++import { SkeletonInput } from '@/components/Skeleton';
++import { useClientDataSWR } from '@/libs/swr';
++import { claudeCodeKeys } from '@/libs/swr/keys';
++import { claudeCodeService } from '@/services/claudeCode';
++import { aiProviderSelectors, useAiInfraStore } from '@/store/aiInfra';
++import { useUserStore } from '@/store/user';
++
++import ProviderConfig from '../../features/ProviderConfig';
++
++const id = ModelProvider.ClaudeCode;
++
++const AUTH_COLOR: Record<string, string | undefined> = {
++  expired: 'warning',
++  logged_in: 'success',
++  logged_out: 'error',
++};
++
++/**
++ * The server Claude Code backend has no API key, endpoint or model fetcher: an
++ * administrator provisions the worker and the worker reports its models. The
++ * page shows that state, and the switch decides whether the models are listed.
++ */
++const ClaudeCodeProviderDetail = memo(() => {
++  const { t } = useTranslation('chat');
++  const useFetchAiProviderItem = useAiInfraStore((s) => s.useFetchAiProviderItem);
++  useFetchAiProviderItem(id);
++  const listed = useAiInfraStore(aiProviderSelectors.isProviderEnabled(id));
++  const userId = useUserStore((s) => (s.isSignedIn ? s.user?.id : undefined));
++  const { data, isLoading, mutate } = useClientDataSWR(
++    userId ? claudeCodeKeys.status(userId) : null,
++    () => claudeCodeService.getStatus(),
++    { refreshInterval: 15_000 },
++  );
++
++  // The model pickers read the listed flag from this status; refresh it with the switch.
++  useEffect(() => {
++    if (data && data.listed !== listed) void mutate();
++  }, [listed]);
++
++  const value = (node: ReactNode) => (isLoading && !data ? <SkeletonInput /> : node);
++  const authStatus = data?.authStatus ?? 'unknown';
++
++  return (
++    <ProviderConfig
++      {...claudeCodeProvider}
++      id={id}
++      showAceGcm={false}
++      source={'builtin'}
++      apiKeyItems={[
++        {
++          children: value(
++            <Tag color={data?.available ? 'success' : 'default'}>
++              {t(data?.available ? 'claudeCodeProvider.online' : 'claudeCodeProvider.offline')}
++            </Tag>,
++          ),
++          desc: t('claudeCodeProvider.workerDesc'),
++          label: t('claudeCodeProvider.worker'),
++        },
++        {
++          children: value(
++            <Tag color={AUTH_COLOR[authStatus]}>{t(`claudeCodeProvider.auth.${authStatus}`)}</Tag>,
++          ),
++          desc: t('claudeCodeProvider.authDesc'),
++          label: t('claudeCodeProvider.authTitle'),
++        },
++        {
++          children: value(<Text type={'secondary'}>{data?.cliVersion ?? '-'}</Text>),
++          label: t('claudeCodeProvider.cliVersion'),
++        },
++        {
++          children: value(
++            data?.models.length ? (
++              <Flexbox horizontal gap={4} justify={'flex-end'} wrap={'wrap'}>
++                {data.models.map((model) => (
++                  <Tag key={model.id}>{model.displayName}</Tag>
++                ))}
++              </Flexbox>
++            ) : (
++              <Text type={'secondary'}>{t('claudeCodeProvider.noModels')}</Text>
++            ),
++          ),
++          desc: t(listed ? 'claudeCodeProvider.modelsDesc' : 'claudeCodeProvider.modelsHidden'),
++          label: t('claudeCodeProvider.models'),
++        },
++      ]}
++      settings={{
++        ...claudeCodeProvider.settings,
++        disableBrowserRequest: true,
++        showApiKey: true,
++        showChecker: false,
++      }}
++    />
++  );
++});
++
++export default ClaudeCodeProviderDetail;
+diff --git a/src/features/Settings/provider/detail/index.tsx b/src/features/Settings/provider/detail/index.tsx
+index 48e484579cf2da3b3c261cbbee44d01f5b42ef32..b907a5cdc48a67bcb280d858b547ec193ef4e78e 100644
+--- a/src/features/Settings/provider/detail/index.tsx
++++ b/src/features/Settings/provider/detail/index.tsx
+@@ -41,6 +41,10 @@ const AzureAI = dynamic(() => import('./azureai'), {
+   loading: () => <SurfaceSkeleton header={false} variant={'form'} />,
+   ssr: false,
+ });
++const ClaudeCode = dynamic(() => import('./claudeCode'), {
++  loading: () => <SurfaceSkeleton header={false} variant={'form'} />,
++  ssr: false,
++});
+ const Azure = dynamic(() => import('./azure'), {
+   loading: () => <SurfaceSkeleton header={false} variant={'form'} />,
+   ssr: false,
+@@ -75,6 +79,9 @@ const ProviderDetailPage = (props: ProviderDetailPageProps) => {
+     case 'bedrock': {
+       return <Bedrock />;
+     }
++    case 'claude-code': {
++      return <ClaudeCode />;
++    }
+     case 'cloudflare': {
+       return <Cloudflare />;
+     }
 diff --git a/src/hooks/claudeCodeModels.test.ts b/src/hooks/claudeCodeModels.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..444aed3cf5d9883281c2eefba7afc10e62e16b0b
+index 0000000000000000000000000000000000000000..d6b77e5dfe764fdea808acf02f508fbe1fcb3358
 --- /dev/null
 +++ b/src/hooks/claudeCodeModels.test.ts
-@@ -0,0 +1,81 @@
+@@ -0,0 +1,90 @@
 +import type { ClaudeCodeStatus } from '@lobechat/types';
 +import { describe, expect, it } from 'vitest';
 +
@@ -15909,6 +16254,15 @@ index 0000000000000000000000000000000000000000..444aed3cf5d9883281c2eefba7afc10e
 +    expect(appendClaudeCodeModels(apiProviders, { ...status, models: [] }, 'server')).toBe(
 +      apiProviders,
 +    );
++    // Switched off in the provider settings.
++    expect(appendClaudeCodeModels(apiProviders, { ...status, listed: false }, 'server')).toBe(
++      apiProviders,
++    );
++    expect(
++      appendClaudeCodeModels(apiProviders, { ...status, listed: true }, 'server').map(
++        ({ id }) => id,
++      ),
++    ).toContain('claude-code');
 +    const stale = [
 +      ...apiProviders,
 +      { children: [], id: 'claude-code', name: 'stale user binding', source: 'builtin' as const },
@@ -15958,10 +16312,10 @@ index 0000000000000000000000000000000000000000..444aed3cf5d9883281c2eefba7afc10e
 +});
 diff --git a/src/hooks/claudeCodeModels.ts b/src/hooks/claudeCodeModels.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..4fce58550b4c911bfb62a3d0094c9c66001a8470
+index 0000000000000000000000000000000000000000..98a69c8ce49c60b86180234e725b0578cb2cae5d
 --- /dev/null
 +++ b/src/hooks/claudeCodeModels.ts
-@@ -0,0 +1,53 @@
+@@ -0,0 +1,55 @@
 +import type { ClaudeCodeStatus } from '@lobechat/types';
 +import { ModelProvider } from 'model-bank/modelProvider';
 +import { claudeCodeProvider } from 'model-bank/modelProviders/claude-code';
@@ -15977,7 +16331,9 @@ index 0000000000000000000000000000000000000000..4fce58550b4c911bfb62a3d0094c9c66
 +  const apiProviders = providers.some((provider) => provider.id === ModelProvider.ClaudeCode)
 +    ? providers.filter((provider) => provider.id !== ModelProvider.ClaudeCode)
 +    : providers;
-+  if (!status?.enabled || status.models.length === 0) return apiProviders;
++  if (!status?.enabled || status.listed === false || status.models.length === 0) {
++    return apiProviders;
++  }
 +
 +  const seen = new Set<string>();
 +  const models = status.models.filter((model) => {
@@ -16137,6 +16493,84 @@ index 0000000000000000000000000000000000000000..104db0860ff4b8375cd57fd737354b05
 +
 +  return { ...response, enabledList };
 +};
+diff --git a/src/libs/providerIcon.test.ts b/src/libs/providerIcon.test.ts
+index 51d259a1fe5cb15e34a874463de31022e8d2f952..6d8c0a296f8b305be6cbbb778b47e95f9a557c9c 100644
+--- a/src/libs/providerIcon.test.ts
++++ b/src/libs/providerIcon.test.ts
+@@ -20,4 +20,18 @@ describe('provider artwork', () => {
+     expect(wordmark).not.toContain('lucide-provider');
+     expect((wordmark.match(/<svg /g) || []).length).toBe(2);
+   });
++
++  it('draws the Claude Code artwork for the server backend instead of a generic glyph', () => {
++    for (const type of ['avatar', 'mono', 'color', 'combine'] as const) {
++      const icon = renderToStaticMarkup(
++        createElement(ProviderIcon, { provider: 'claude-code', type }),
++      );
++      expect(icon).toContain('<title>Claude Code</title>');
++      expect(icon).not.toContain('lucide-provider');
++    }
++    const wordmark = renderToStaticMarkup(
++      createElement(ProviderCombine, { provider: 'claude-code' }),
++    );
++    expect(wordmark).toContain('<title>Claude Code</title>');
++  });
+ });
+diff --git a/src/libs/providerIcon.ts b/src/libs/providerIcon.ts
+index be0880353bb4f252ef92d9f42bba785fa864aa35..e1cc2743521cf8e5eefdb32d82b8aa4ad923ffef 100644
+--- a/src/libs/providerIcon.ts
++++ b/src/libs/providerIcon.ts
+@@ -1,13 +1,48 @@
+ /* eslint-disable eslint-core/no-restricted-imports -- the lazy wrapper in @/components/LobeIcons is the only importer */
+ import {
++  ClaudeCode,
+   ProviderCombine as LobeProviderCombine,
+   ProviderIcon as LobeProviderIcon,
+ } from '@lobehub/icons';
+ /* eslint-enable no-restricted-imports */
++import { type ComponentProps, createElement, memo } from 'react';
++
++// The icon catalog has no provider entry for the server Claude Code backend
++// (`claude-code`), so it would fall back to a generic glyph; its agent artwork
++// stands in. Every other provider renders exactly as before.
++const CLAUDE_CODE = 'claude-code';
++
++type ProviderIconProps = ComponentProps<typeof LobeProviderIcon>;
++type ProviderCombineProps = ComponentProps<typeof LobeProviderCombine>;
+ 
+ // Do not turn these back into `export { ... }` re-exports: with rolldown's
+ // strictExecutionOrder (rolldown 1.2.12) the icon modules' init wrappers are
+ // then never called in production chunks, both exports stay undefined and the
+ // lazy loaders in @/components/LobeIcons crash with React #306.
+-export const ProviderIcon = LobeProviderIcon;
+-export const ProviderCombine = LobeProviderCombine;
++export const ProviderIcon = memo<ProviderIconProps>((props) => {
++  if (props.provider !== CLAUDE_CODE) return createElement(LobeProviderIcon, props);
++  // Same default size as the catalog icon.
++  const { className, shape, size = 12, style, type = 'avatar' } = props;
++  if (type === 'avatar') return createElement(ClaudeCode.Avatar, { className, shape, size, style });
++  if (type === 'mono') return createElement(ClaudeCode, { className, size, style });
++  if (type === 'combine' || type === 'combine-color') {
++    return createElement(ClaudeCode.Combine, {
++      className,
++      size,
++      style,
++      type: type === 'combine' ? 'mono' : 'color',
++    });
++  }
++  return createElement(ClaudeCode.Color, { className, size, style });
++});
++
++export const ProviderCombine = memo<ProviderCombineProps>((props) =>
++  props.provider === CLAUDE_CODE
++    ? createElement(ClaudeCode.Combine, {
++        className: props.className,
++        size: props.size,
++        style: props.style,
++        type: props.type === 'mono' ? 'mono' : 'color',
++      })
++    : createElement(LobeProviderCombine, props),
++);
 diff --git a/src/libs/swr/keys.ts b/src/libs/swr/keys.ts
 index 3c9817cd9b84df9a71f1d54a6fb9756dfb710ee3..927d009b176ee26ef6a40ba35e888818293b971e 100644
 --- a/src/libs/swr/keys.ts
