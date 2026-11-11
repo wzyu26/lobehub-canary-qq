@@ -1238,10 +1238,10 @@ index 0000000000000000000000000000000000000000..7a006c575ecd91886a80209bf8e46707
 +};
 diff --git a/apps/claude-code-worker/src/cliSession.test.ts b/apps/claude-code-worker/src/cliSession.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..84ae074c426dcf8cf269a854a07e45606852862e
+index 0000000000000000000000000000000000000000..06fa97fb093909b50dd717364b043ecd906e1998
 --- /dev/null
 +++ b/apps/claude-code-worker/src/cliSession.test.ts
-@@ -0,0 +1,245 @@
+@@ -0,0 +1,277 @@
 +import { mkdtemp, rm } from 'node:fs/promises';
 +import os from 'node:os';
 +import path from 'node:path';
@@ -1464,6 +1464,38 @@ index 0000000000000000000000000000000000000000..84ae074c426dcf8cf269a854a07e4560
 +    await vi.advanceTimersByTimeAsync(1100);
 +    expect(waiting.kill).toHaveBeenCalledWith('SIGTERM');
 +    expect(registered.has(waiting.key)).toBe(false);
++  });
++
++  it('prepares the next CLI after a stopped turn, but not after a failed one', async () => {
++    const { prewarmer } = setup();
++    const config = { ...testConfig(root), prewarmIdleMs: 60_000 };
++    const signal = new AbortController().signal;
++    // The server reports the run as stopped by the user, or as failed.
++    const endedAs = (status: string) =>
++      ({
++        post: vi.fn(async (route: string, body: any) => {
++          if (route.endsWith('/heartbeat'))
++            return { leaseExpiresAt: new Date(Date.now() + 60_000).toISOString(), status };
++          if (route.endsWith('/events')) return { acceptedSequence: body.events.at(-1).sequence };
++          return {};
++        }),
++      }) as unknown as WorkerApi;
++    for (const [status, waiting] of [
++      ['cancelling', 1],
++      ['failed', 0],
++    ] as const) {
++      clis = [];
++      await runOperation(claimFor(`operation-${status}`), {
++        api: endedAs(status),
++        config,
++        mcp,
++        prewarmer,
++        signal,
++        spawn,
++      });
++      expect(clis.filter(({ key }) => key.startsWith('warm-'))).toHaveLength(waiting);
++      await prewarmer.clear();
++    }
 +  });
 +
 +  it('does not keep a waiting process after shutdown', async () => {
@@ -3065,10 +3097,10 @@ index 0000000000000000000000000000000000000000..e2d3eb52da1e2c3a9462d01d066c2925
 +});
 diff --git a/apps/claude-code-worker/src/runner.ts b/apps/claude-code-worker/src/runner.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..96d52f16b15ec7d1d8c997702d753afe89e83d11
+index 0000000000000000000000000000000000000000..b11a627f0133b4cfa3012a9d32c42e3b3239ca37
 --- /dev/null
 +++ b/apps/claude-code-worker/src/runner.ts
-@@ -0,0 +1,267 @@
+@@ -0,0 +1,271 @@
 +import { mkdir } from 'node:fs/promises';
 +import { setTimeout as delay } from 'node:timers/promises';
 +
@@ -3334,7 +3366,11 @@ index 0000000000000000000000000000000000000000..96d52f16b15ec7d1d8c997702d753afe
 +  await box.finish(api, signal);
 +  // The next turn of a conversation nearly always repeats this one's system
 +  // prompt, tools and model, so its CLI can start now instead of after the claim.
-+  if (finish.status === 'completed') await deps.prewarmer?.prepare(claim.request);
++  // A user who stops a turn usually sends another right away. An error or an
++  // interruption may mean a broken login or a stopping worker, so those wait.
++  if (finish.status === 'completed' || finish.status === 'cancelled') {
++    await deps.prewarmer?.prepare(claim.request);
++  }
 +};
 diff --git a/apps/claude-code-worker/src/service.test.ts b/apps/claude-code-worker/src/service.test.ts
 new file mode 100644
