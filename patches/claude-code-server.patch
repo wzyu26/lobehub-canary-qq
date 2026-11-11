@@ -15025,27 +15025,6 @@ index 93c09b2ccec62f715af66160b346e884fe6d3302..0533ed8de5e0f35b4255b7fc88231ffa
    };
  };
  
-diff --git a/packages/heterogeneous-agents/warm2.tmp.mts b/packages/heterogeneous-agents/warm2.tmp.mts
-new file mode 100644
-index 0000000000000000000000000000000000000000..dc74482426db8528f56a98605b09803968aa6619
---- /dev/null
-+++ b/packages/heterogeneous-agents/warm2.tmp.mts
-@@ -0,0 +1,15 @@
-+import { spawn } from 'node:child_process';
-+import { readFileSync } from 'node:fs';
-+import { LobeBuiltinMcpServer } from './src/builtinMcp/LobeBuiltinMcpServer';
-+const delayMs = Number(process.argv[2] ?? 0);
-+let called = 0;
-+const tools = JSON.parse(readFileSync('C:/Users/wz2yu/AppData/Local/Temp/claude/c1f25559964631c8/71286f17-f51f-4804-8ad1-2d6dbcb94619/scratchpad/tools.json', 'utf8')).map((t: any) => ({ description: t.description, inputSchema: t.inputSchema, name: t.name, handler: async () => { called++; console.log(Date.now() - t0, 'TOOL CALLED', t.name); return { content: [{ type: 'text', text: '42' }] }; } }));
-+const calc = tools.find((t: any) => /calculat/i.test(t.name)) ?? tools[0];
-+const server = new LobeBuiltinMcpServer(); await server.start();
-+server.registerOperation('warm', undefined, { tools, onInvalidTool: () => {} });
-+let t0 = Date.now();
-+const p = spawn(process.env.CLAUDE_BIN!, ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--setting-sources', '', '--strict-mcp-config', '--mcp-config', JSON.stringify({ mcpServers: { lobe_cc: { type: 'http', url: server.urlForOperation('warm') } } }), '--model', 'haiku', '--permission-mode', 'bypassPermissions'], { stdio: ['pipe', 'pipe', 'ignore'], env: { ...process.env, MCP_CONNECTION_NONBLOCKING: 'false', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1', DISABLE_AUTOUPDATER: '1' } });
-+setTimeout(() => { console.log(Date.now() - t0, 'stdin written; asking for tool', calc.name); p.stdin.write(JSON.stringify({ type: 'user', message: { role: 'user', content: [{ type: 'text', text: 'Call the MCP tool named mcp__lobe_cc__' + calc.name + ' once with any valid arguments, then reply with just: done' }] } }) + '\n'); p.stdin.end(); }, delayMs);
-+let buf = '';
-+p.stdout.on('data', (d) => { buf += d; });
-+p.on('exit', async (c) => { for (const l of buf.split('\n')) { try { const e = JSON.parse(l); if (e.type === 'result') console.log('result:', e.subtype, String(e.result).slice(0, 80)); } catch {} } console.log(Date.now() - t0, 'exit', c, 'tool calls:', called); await server.stop(); process.exit(0); });
 diff --git a/packages/locales/src/default/chat.ts b/packages/locales/src/default/chat.ts
 index 2345c8b088327673d1d4f67248b5203812b4986e..7e8710adff6f2849692d25600eaca9ce41efaf23 100644
 --- a/packages/locales/src/default/chat.ts
