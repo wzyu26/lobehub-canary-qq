@@ -5794,7 +5794,7 @@ index 0000000000000000000000000000000000000000..4571eaf378be298848c34c88ffd34214
 +  });
 +});
 diff --git a/apps/server/src/services/aiAgent/pipeline/turnSetup.ts b/apps/server/src/services/aiAgent/pipeline/turnSetup.ts
-index 573c19b7c9fb12428256198b30877e1bce821134..c78e8f59cef334e07793aef2086ccdd4d2bc6385 100644
+index cb17abf0349ccb6bf33bcecc6cd2e75bc9e073ce..011699eaae7cf6c2dd73dcdf3aee09569f262575 100644
 --- a/apps/server/src/services/aiAgent/pipeline/turnSetup.ts
 +++ b/apps/server/src/services/aiAgent/pipeline/turnSetup.ts
 @@ -31,6 +31,7 @@ import { resolveModelExtendParamsForUser } from '@/server/modules/AgentRuntime/a
@@ -5845,7 +5845,7 @@ index 573c19b7c9fb12428256198b30877e1bce821134..c78e8f59cef334e07793aef2086ccdd4
      if (
        agentConfig.agencyConfig?.executionTargetSelectionPolicy === 'fixed' &&
        agentConfig.agencyConfig.boundDeviceId !== directory.deviceId
-@@ -710,19 +719,6 @@ export const setupTurn = async (
+@@ -714,19 +723,6 @@ export const setupTurn = async (
          taskId: operationTaskId,
          topicProjectId: existingTopic?.projectId ?? null,
        });
@@ -5865,7 +5865,7 @@ index 573c19b7c9fb12428256198b30877e1bce821134..c78e8f59cef334e07793aef2086ccdd4
        // Fail-closed guard: a non-share run must never operate on a share-visitor
        // topic. `findById` is ownership-scoped but deliberately does NOT exclude
        // visitor topics (see its JSDoc) — they carry the CREATOR's own userId for
-@@ -756,6 +752,17 @@ export const setupTurn = async (
+@@ -760,6 +756,17 @@ export const setupTurn = async (
            topicId,
          );
        }
@@ -5883,7 +5883,7 @@ index 573c19b7c9fb12428256198b30877e1bce821134..c78e8f59cef334e07793aef2086ccdd4
        // Effort and speed pins live in metadata and are independent of the model
        // pin (a runtime without a model selector can still pin them). They belong
        // to the topic's own agent for the same reason as the model pin.
-@@ -792,6 +799,7 @@ export const setupTurn = async (
+@@ -796,6 +803,7 @@ export const setupTurn = async (
        // A project-directory topic already routed to its directory's device above.
        if (
          !requestedDeviceId &&
@@ -5891,7 +5891,7 @@ index 573c19b7c9fb12428256198b30877e1bce821134..c78e8f59cef334e07793aef2086ccdd4
          !existingTopic?.projectWorkingDirectoryId &&
          topicPinnedDeviceId &&
          !isFixedExecutionTargetSelection &&
-@@ -805,7 +813,7 @@ export const setupTurn = async (
+@@ -809,7 +817,7 @@ export const setupTurn = async (
  
        // Re-assert the share restriction after topic overrides are applied.
        // Heterogeneous agents are not available for shared visitor runs.
@@ -5900,7 +5900,7 @@ index 573c19b7c9fb12428256198b30877e1bce821134..c78e8f59cef334e07793aef2086ccdd4
          throw new TRPCError({
            code: 'FORBIDDEN',
            message: ChatErrorType.ShareHeterogeneousAgentUnsupported,
-@@ -860,6 +868,16 @@ export const setupTurn = async (
+@@ -864,6 +872,16 @@ export const setupTurn = async (
    // chat) and stops the device list from leaking into the LLM context.
    const { canUseDevice, reason: deviceAccessReason } = resolveDeviceAccessPolicy({
      botContext,
@@ -5917,7 +5917,7 @@ index 573c19b7c9fb12428256198b30877e1bce821134..c78e8f59cef334e07793aef2086ccdd4
      shareVisitor: !!shareGate,
    });
    log(
-@@ -873,7 +891,8 @@ export const setupTurn = async (
+@@ -877,7 +895,8 @@ export const setupTurn = async (
    // the UI), fall back to the legacy `model` field for backwards compatibility
    // (shared with the inbox write guard via `isHeterogeneousAgentModelId`).
    const heteroProviderType = agentConfig.agencyConfig?.heterogeneousProvider?.type;
@@ -10950,7 +10950,7 @@ index 5850d5d149875a21ccbdf75b29e917625a2d2b88..092615211eca8f468513733eb2816fd4
    id uuid [pk, not null, default: `gen_random_uuid()`]
    user_connector_id uuid [not null]
 diff --git a/locales/en-US/chat.json b/locales/en-US/chat.json
-index d335e43b5e36dde4f876e253cba9daf717d6013d..c10797fd17028d2606a198435c1b9b3081913b58 100644
+index 129775f8a6ef4d1d77bec452250cc8f08504aac3..6fadd5c77746dfe6c0f29e7398355ea56f74a572 100644
 --- a/locales/en-US/chat.json
 +++ b/locales/en-US/chat.json
 @@ -134,6 +134,14 @@
@@ -10983,7 +10983,7 @@ index 59ad5d0f6f9b46acc045aa3f1962f9d2d581da83..1bed9b59413cc7ffb9a28766a49e1be2
    "cohere.description": "Cohere delivers cutting-edge multilingual models, advanced retrieval, and AI workspaces for modern enterprises—all in one secure platform.",
    "cometapi.description": "CometAPI provides access to frontier models from OpenAI, Anthropic, Google, and more, letting users choose the best model and pricing for diverse use cases.",
 diff --git a/locales/zh-CN/chat.json b/locales/zh-CN/chat.json
-index 2024342d1e259ca860ab26e04f17412a654f7592..66dffed5053fd08bd1f043415f2d107c7b0ce530 100644
+index 07bd24397fc241dba41ce12910616ae2dd838847..d9e051f850f94fb25def3c58b5338fd419374b03 100644
 --- a/locales/zh-CN/chat.json
 +++ b/locales/zh-CN/chat.json
 @@ -134,6 +134,14 @@
@@ -15047,7 +15047,7 @@ index 0000000000000000000000000000000000000000..dc74482426db8528f56a98605b098039
 +p.stdout.on('data', (d) => { buf += d; });
 +p.on('exit', async (c) => { for (const l of buf.split('\n')) { try { const e = JSON.parse(l); if (e.type === 'result') console.log('result:', e.subtype, String(e.result).slice(0, 80)); } catch {} } console.log(Date.now() - t0, 'exit', c, 'tool calls:', called); await server.stop(); process.exit(0); });
 diff --git a/packages/locales/src/default/chat.ts b/packages/locales/src/default/chat.ts
-index 758cfb9627b381c593a8bb0902e6ccb29a4a9fde..b0314457f247b0c8eb3dc9f7cb32c59d90550d2e 100644
+index 2345c8b088327673d1d4f67248b5203812b4986e..7e8710adff6f2849692d25600eaca9ce41efaf23 100644
 --- a/packages/locales/src/default/chat.ts
 +++ b/packages/locales/src/default/chat.ts
 @@ -5,6 +5,16 @@ export default {
@@ -15152,14 +15152,14 @@ index 0000000000000000000000000000000000000000..1dc606a6032bf26ffaf4d68b8c842152
 +  settings: {},
 +  url: 'https://code.claude.com/docs/en/authentication',
 +} satisfies ModelProviderCard;
-diff --git a/packages/model-runtime/src/core/anthropicCompatibleFactory/generateObject.ts b/packages/model-runtime/src/core/anthropicCompatibleFactory/generateObject.ts
-index 52b7efd0aeeca3046c68d8c11e49ffde4de40c52..8e05c3456acedcf633caed8c525144565be4a656 100644
---- a/packages/model-runtime/src/core/anthropicCompatibleFactory/generateObject.ts
-+++ b/packages/model-runtime/src/core/anthropicCompatibleFactory/generateObject.ts
-@@ -8,6 +8,7 @@ import type { GenerateObjectOptions, GenerateObjectPayload } from '../../types';
- import { buildAnthropicMessages, buildAnthropicTools } from '../contextBuilders/anthropic';
- import { buildAnthropicInitialUsage } from '../usageConverters/anthropic';
- import { withUsageCost } from '../usageConverters/utils/withUsageCost';
+diff --git a/packages/model-runtime/src/core/protocols/anthropicMessages/generateObject.ts b/packages/model-runtime/src/core/protocols/anthropicMessages/generateObject.ts
+index 763fc8ff8592b8f6ae84f91606d5214060ad3a40..571108e6248e6f9114d671ea37f8926156209fa2 100644
+--- a/packages/model-runtime/src/core/protocols/anthropicMessages/generateObject.ts
++++ b/packages/model-runtime/src/core/protocols/anthropicMessages/generateObject.ts
+@@ -8,6 +8,7 @@ import type { GenerateObjectOptions, GenerateObjectPayload } from '../../../type
+ import { buildAnthropicInitialUsage } from '../../usageConverters/anthropic';
+ import { withUsageCost } from '../../usageConverters/utils/withUsageCost';
+ import { buildAnthropicMessages, buildAnthropicTools } from './messages';
 +import { toStrictToolInputSchema } from './strictToolSchema';
  
  const log = debug('lobe-model-runtime:anthropic:generate-object');
@@ -15175,11 +15175,11 @@ index 52b7efd0aeeca3046c68d8c11e49ffde4de40c52..8e05c3456acedcf633caed8c52514456
      log('converted tool: %O', tool);
  
      finalTools = [tool];
-diff --git a/packages/model-runtime/src/core/anthropicCompatibleFactory/strictToolSchema.test.ts b/packages/model-runtime/src/core/anthropicCompatibleFactory/strictToolSchema.test.ts
+diff --git a/packages/model-runtime/src/core/protocols/anthropicMessages/strictToolSchema.test.ts b/packages/model-runtime/src/core/protocols/anthropicMessages/strictToolSchema.test.ts
 new file mode 100644
 index 0000000000000000000000000000000000000000..378d90dc2173ccfcafb38c1a7e93511c5e0ed4cf
 --- /dev/null
-+++ b/packages/model-runtime/src/core/anthropicCompatibleFactory/strictToolSchema.test.ts
++++ b/packages/model-runtime/src/core/protocols/anthropicMessages/strictToolSchema.test.ts
 @@ -0,0 +1,105 @@
 +// @vitest-environment node
 +import { describe, expect, it } from 'vitest';
@@ -15286,11 +15286,11 @@ index 0000000000000000000000000000000000000000..378d90dc2173ccfcafb38c1a7e93511c
 +    expect((requestParams.tools?.[0] as any).input_schema).toEqual(draftSchema);
 +  });
 +});
-diff --git a/packages/model-runtime/src/core/anthropicCompatibleFactory/strictToolSchema.ts b/packages/model-runtime/src/core/anthropicCompatibleFactory/strictToolSchema.ts
+diff --git a/packages/model-runtime/src/core/protocols/anthropicMessages/strictToolSchema.ts b/packages/model-runtime/src/core/protocols/anthropicMessages/strictToolSchema.ts
 new file mode 100644
 index 0000000000000000000000000000000000000000..fb1722b5ea97bda1157c25399311725e91c93cfe
 --- /dev/null
-+++ b/packages/model-runtime/src/core/anthropicCompatibleFactory/strictToolSchema.ts
++++ b/packages/model-runtime/src/core/protocols/anthropicMessages/strictToolSchema.ts
 @@ -0,0 +1,71 @@
 +/**
 + * Strict tool use (`strict: true`) compiles the input schema into a grammar and rejects keywords
@@ -16123,7 +16123,7 @@ index 0000000000000000000000000000000000000000..104db0860ff4b8375cd57fd737354b05
 +  return { ...response, enabledList };
 +};
 diff --git a/src/libs/swr/keys.ts b/src/libs/swr/keys.ts
-index a8369eda4af8fe970bf183cad084a6c90c5cba6e..a0af32d80692cbe48b0376b47356cfdab476095c 100644
+index 3c9817cd9b84df9a71f1d54a6fb9756dfb710ee3..927d009b176ee26ef6a40ba35e888818293b971e 100644
 --- a/src/libs/swr/keys.ts
 +++ b/src/libs/swr/keys.ts
 @@ -62,6 +62,10 @@ export const channelKeys = {
