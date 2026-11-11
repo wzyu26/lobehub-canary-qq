@@ -1,14 +1,17 @@
 diff --git a/apps/claude-code-worker/.env.example b/apps/claude-code-worker/.env.example
 new file mode 100644
-index 0000000000000000000000000000000000000000..a9e82597fd74f72e36681abd9feb16a530ae4ace
+index 0000000000000000000000000000000000000000..a088d0bc1ef1b1312416cd4cc6d634ec9323a81f
 --- /dev/null
 +++ b/apps/claude-code-worker/.env.example
-@@ -0,0 +1,5 @@
+@@ -0,0 +1,8 @@
 +# Supply a revision-specific tag or, preferably, the built image digest.
 +CLAUDE_WORKER_IMAGE=lobehub-claude-worker:replace-with-build-revision
 +LOBEHUB_WORKER_ID=replace-with-provisioned-worker-id
 +LOBEHUB_WORKER_SERVER_URL=https://replace-with-lobehub-host
 +LOBEHUB_WORKER_TOKEN_HOST_FILE=/absolute/per-user/secrets/worker-token
++# Optional. After a turn the worker starts the next Claude Code process early so a
++# follow-up skips CLI startup; it waits this long (ms) and makes no model call. 0 disables.
++# LOBEHUB_WORKER_PREWARM_IDLE_MS=600000
 diff --git a/apps/claude-code-worker/DEPLOYMENT.md b/apps/claude-code-worker/DEPLOYMENT.md
 new file mode 100644
 index 0000000000000000000000000000000000000000..f77d4697463744bdba4289ab922e070824abe1db
@@ -699,10 +702,10 @@ index 0000000000000000000000000000000000000000..e80cd9352a2f1e49595b11cd504063d3
 +};
 diff --git a/apps/claude-code-worker/compose.yaml b/apps/claude-code-worker/compose.yaml
 new file mode 100644
-index 0000000000000000000000000000000000000000..7b08382e9507ddd80cf9174ffbc6a1ddecdd658a
+index 0000000000000000000000000000000000000000..653f7e21b9a2aca416c369e0bcc9b9eb9be54281
 --- /dev/null
 +++ b/apps/claude-code-worker/compose.yaml
-@@ -0,0 +1,45 @@
+@@ -0,0 +1,47 @@
 +# One Compose project per user. Never scale this service or share its volumes.
 +services:
 +  worker:
@@ -724,6 +727,8 @@ index 0000000000000000000000000000000000000000..7b08382e9507ddd80cf9174ffbc6a1dd
 +      LOBEHUB_WORKER_ID: ${LOBEHUB_WORKER_ID:?Set this user's provisioned worker ID}
 +      LOBEHUB_WORKER_SERVER_URL: ${LOBEHUB_WORKER_SERVER_URL:?Set the trusted HTTPS application URL}
 +      LOBEHUB_WORKER_TOKEN_FILE: /run/secrets/worker_token
++      # How long a CLI started ahead of the next turn may wait; 0 turns it off.
++      LOBEHUB_WORKER_PREWARM_IDLE_MS: ${LOBEHUB_WORKER_PREWARM_IDLE_MS:-600000}
 +    volumes:
 +      - home:/home/claude
 +      - config:/home/claude/.claude
@@ -1231,12 +1236,541 @@ index 0000000000000000000000000000000000000000..7a006c575ecd91886a80209bf8e46707
 +    if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
 +  }
 +};
+diff --git a/apps/claude-code-worker/src/cliSession.test.ts b/apps/claude-code-worker/src/cliSession.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..84ae074c426dcf8cf269a854a07e45606852862e
+--- /dev/null
++++ b/apps/claude-code-worker/src/cliSession.test.ts
+@@ -0,0 +1,245 @@
++import { mkdtemp, rm } from 'node:fs/promises';
++import os from 'node:os';
++import path from 'node:path';
++import { PassThrough } from 'node:stream';
++
++import type { AskUserBridge } from '@lobechat/heterogeneous-agents/askUser';
++import type {
++  LobeBuiltinMcpServer,
++  McpOperationOptions,
++} from '@lobechat/heterogeneous-agents/builtinMcp';
++import type { SpawnAgentHandle, SpawnAgentOptions } from '@lobechat/heterogeneous-agents/spawn';
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
++
++import type { WorkerApi } from './api';
++import { CliPrewarmer, cliRequestSignature } from './cliSession';
++import { runOperation } from './runner';
++import { testClaim, testConfig, testEvent } from './testUtils';
++
++interface FakeCli {
++  exit: (code?: number) => void;
++  key: string;
++  kill: ReturnType<typeof vi.fn>;
++  options: SpawnAgentOptions;
++  prompts: unknown[];
++}
++
++describe('a CLI started ahead of the next turn', () => {
++  let root: string;
++  let clis: FakeCli[];
++  let registered: Map<string, { bridge: AskUserBridge; options: McpOperationOptions }>;
++  let delivered: Array<{ operationId: string; type: string }>;
++  let toolCalls: Array<{ name: string; route: string }>;
++  let acceptPrompt: (key: string) => boolean;
++
++  const mcp = {
++    registerOperation: (id: string, bridge: AskUserBridge, options: McpOperationOptions) => {
++      registered.set(id, { bridge, options });
++      return bridge;
++    },
++    unregisterOperation: (id: string) => {
++      registered.get(id)?.bridge.cancelAll('session_ended');
++      registered.delete(id);
++    },
++    urlForOperation: (id: string) => `http://127.0.0.1:1234/mcp?op=${id}`,
++  } as unknown as LobeBuiltinMcpServer;
++
++  /** A CLI that says nothing until it gets its prompt, then calls a tool and ends. */
++  const spawn = vi.fn(async (options: SpawnAgentOptions): Promise<SpawnAgentHandle> => {
++    let finish!: (value: { code: number | null; signal: NodeJS.Signals | null }) => void;
++    const exit = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(
++      (resolve) => (finish = resolve),
++    );
++    let prompted!: () => void;
++    const gotPrompt = new Promise<void>((resolve) => (prompted = resolve));
++    const prompts: unknown[] = [];
++    const key = options.operationId;
++    const kill = vi.fn(() => finish({ code: null, signal: 'SIGTERM' }));
++    clis.push({ exit: (code = 0) => finish({ code, signal: null }), key, kill, options, prompts });
++    return {
++      events: (async function* () {
++        const first = await Promise.race([gotPrompt.then(() => 'prompt'), exit.then(() => 'exit')]);
++        if (first === 'exit') return;
++        const tool = registered.get(key)?.options.tools?.[0];
++        if (tool) await tool.handler({ operationId: key, toolCallId: 'toolu_1' }, { q: 'x' });
++        yield { ...testEvent('agent_runtime_end'), operationId: key };
++        finish({ code: 0, signal: null });
++      })(),
++      exit,
++      kill,
++      pid: 42,
++      sessionId: undefined,
++      stderr: new PassThrough(),
++      submitPrompt: async (prompt) => {
++        if (!acceptPrompt(key)) return false;
++        prompts.push(prompt);
++        prompted();
++        return true;
++      },
++    };
++  });
++
++  const api = () =>
++    ({
++      post: vi.fn(async (route: string, body: any) => {
++        if (route.endsWith('/heartbeat'))
++          return { leaseExpiresAt: new Date(Date.now() + 60_000).toISOString(), status: 'running' };
++        if (route.endsWith('/events')) {
++          delivered.push(...body.events.map((item: any) => item.event));
++          return { acceptedSequence: body.events.at(-1).sequence };
++        }
++        if (route.endsWith('/tool')) {
++          toolCalls.push({ name: body.name, route });
++          return { result: { content: [{ text: 'done', type: 'text' }] }, status: 'completed' };
++        }
++        return {};
++      }),
++    }) as unknown as WorkerApi;
++
++  const claimFor = (operationId: string, systemPrompt = 'Assistant role') => {
++    const claim = testClaim({ operationId });
++    claim.request.systemPrompt = systemPrompt;
++    claim.request.prompt = `turn ${operationId}`;
++    claim.request.tools = [
++      {
++        apiName: 'search',
++        description: 'Search',
++        identifier: 'lobe-web-browsing',
++        inputSchema: { type: 'object' },
++        name: 'search',
++        type: 'builtin',
++      },
++    ];
++    return claim;
++  };
++
++  const setup = (prewarmIdleMs = 60_000) => {
++    const config = { ...testConfig(root), prewarmIdleMs };
++    const signal = new AbortController();
++    const prewarmer = new CliPrewarmer({ config, mcp, signal: signal.signal, spawn });
++    const run = (claim: ReturnType<typeof claimFor>) =>
++      runOperation(claim, { api: api(), config, mcp, prewarmer, signal: signal.signal, spawn });
++    return { prewarmer, run, signal };
++  };
++
++  beforeEach(async () => {
++    root = await mkdtemp(path.join(os.tmpdir(), 'worker-warm-'));
++    clis = [];
++    registered = new Map();
++    delivered = [];
++    toolCalls = [];
++    acceptPrompt = () => true;
++    spawn.mockClear();
++  });
++  afterEach(async () => {
++    vi.useRealTimers();
++    await rm(root, { force: true, recursive: true });
++  });
++
++  it('serves an identical next turn from the waiting process, under the real run id', async () => {
++    const { prewarmer, run } = setup();
++    await run(claimFor('operation-1'));
++    // One process ran the turn; a second one now waits, with no prompt.
++    expect(clis).toHaveLength(2);
++    const waiting = clis[1];
++    expect(waiting.key).toMatch(/^warm-/);
++    expect(waiting.options.deferPrompt).toBe(true);
++    expect(waiting.prompts).toEqual([]);
++    expect(registered.has(waiting.key)).toBe(true);
++
++    delivered = [];
++    toolCalls = [];
++    await run(claimFor('operation-2'));
++    // No extra process for the second turn itself: only its own successor.
++    expect(clis).toHaveLength(3);
++    expect(waiting.prompts).toEqual(['turn operation-2']);
++    // Its events and tool calls belong to the real run, never the placeholder.
++    expect(delivered.length).toBeGreaterThan(0);
++    expect(delivered.every((event) => event.operationId === 'operation-2')).toBe(true);
++    expect(toolCalls).toEqual([{ name: 'search', route: '/runs/operation-2/tool' }]);
++    expect(registered.has(waiting.key)).toBe(false);
++    await prewarmer.clear();
++    expect(registered.size).toBe(0);
++  });
++
++  it('refuses a tool call on a process that has no turn yet', async () => {
++    const { prewarmer, run } = setup();
++    await run(claimFor('operation-1'));
++    const waiting = clis[1];
++    const tool = registered.get(waiting.key)!.options.tools![0];
++    await expect(
++      tool.handler({ operationId: waiting.key, toolCallId: 'toolu_early' }, {}),
++    ).rejects.toThrow('before the turn started');
++    await prewarmer.clear();
++  });
++
++  it('starts fresh when the next turn differs in what a CLI fixes at start', async () => {
++    const { prewarmer, run } = setup();
++    await run(claimFor('operation-1'));
++    const waiting = clis[1];
++    await run(claimFor('operation-2', 'A different assistant role'));
++    expect(waiting.kill).toHaveBeenCalledWith('SIGTERM');
++    expect(waiting.prompts).toEqual([]);
++    expect(clis[2].key).toBe('operation-2');
++    expect(clis[2].prompts).toEqual(['turn operation-2']);
++    await prewarmer.clear();
++  });
++
++  it('starts fresh when the waiting process died or cannot take the prompt', async () => {
++    const { prewarmer, run } = setup();
++    await run(claimFor('operation-1'));
++    clis[1].exit(1);
++    await vi.waitFor(() => expect(registered.has(clis[1].key)).toBe(false));
++    await run(claimFor('operation-2'));
++    expect(clis[2].key).toBe('operation-2');
++    expect(clis[2].prompts).toEqual(['turn operation-2']);
++
++    // Alive but unable to accept input: nothing was written, so the fresh
++    // process delivers the prompt exactly once.
++    const refusing = clis[3];
++    acceptPrompt = (key) => key !== refusing.key;
++    delivered = [];
++    await run(claimFor('operation-3'));
++    expect(refusing.prompts).toEqual([]);
++    expect(clis[4].key).toBe('operation-3');
++    expect(clis[4].prompts).toEqual(['turn operation-3']);
++    expect(delivered.some((event) => event.type === 'agent_runtime_end')).toBe(true);
++    await prewarmer.clear();
++  });
++
++  it('stops a process nobody used, and starts none when prewarming is off', async () => {
++    const off = setup(0);
++    await off.run(claimFor('operation-1'));
++    expect(clis).toHaveLength(1);
++
++    vi.useFakeTimers();
++    const on = setup(1000);
++    await on.prewarmer.prepare(claimFor('operation-2').request);
++    const waiting = clis[1];
++    expect(waiting.kill).not.toHaveBeenCalled();
++    await vi.advanceTimersByTimeAsync(1100);
++    expect(waiting.kill).toHaveBeenCalledWith('SIGTERM');
++    expect(registered.has(waiting.key)).toBe(false);
++  });
++
++  it('does not keep a waiting process after shutdown', async () => {
++    const { prewarmer, signal } = setup();
++    signal.abort();
++    await prewarmer.prepare(claimFor('operation-1').request);
++    expect(clis).toHaveLength(0);
++  });
++
++  it('distinguishes requests by model, effort, system prompt and tools', () => {
++    const base = claimFor('operation-1').request;
++    const same = cliRequestSignature({ ...base, prompt: 'another prompt' });
++    expect(same).toBe(cliRequestSignature(base));
++    for (const changed of [
++      { ...base, model: 'opus' },
++      { ...base, effort: 'high' as const },
++      { ...base, systemPrompt: 'other' },
++      { ...base, tools: [] },
++    ]) {
++      expect(cliRequestSignature(changed)).not.toBe(same);
++    }
++  });
++});
+diff --git a/apps/claude-code-worker/src/cliSession.ts b/apps/claude-code-worker/src/cliSession.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..e517c754d95655a70885664aa510fa9afaa23a14
+--- /dev/null
++++ b/apps/claude-code-worker/src/cliSession.ts
+@@ -0,0 +1,272 @@
++import { createHash, randomUUID } from 'node:crypto';
++import { mkdtemp, rm, writeFile } from 'node:fs/promises';
++import { tmpdir } from 'node:os';
++import path from 'node:path';
++
++import { AskUserBridge } from '@lobechat/heterogeneous-agents/askUser';
++import type { LobeBuiltinMcpServer } from '@lobechat/heterogeneous-agents/builtinMcp';
++import type {
++  ClaudeCodeAssistantRequest,
++  ClaudeCodeAssistantTool,
++  ClaudeCodeWorkerToolResult,
++} from '@lobechat/heterogeneous-agents/protocol';
++import { spawnAgent, type SpawnAgentHandle } from '@lobechat/heterogeneous-agents/spawn';
++
++import type { WorkerConfig } from './config';
++import { workerCliEnvironment } from './config';
++
++/** What a CLI process needs from the turn it ends up serving. */
++export interface CliSessionBinding {
++  callTool: (
++    tool: ClaudeCodeAssistantTool,
++    toolCallId: string,
++    args: Record<string, unknown>,
++  ) => Promise<ClaudeCodeWorkerToolResult>;
++  getStepIndex: () => number;
++  onStdout: (chunk: Buffer) => void;
++}
++
++/**
++ * One CLI process with its MCP registration and question bridge. The process
++ * is started without a prompt, so it can load its settings and connect to the
++ * tool bridge before the turn it will serve exists.
++ */
++export interface CliSession {
++  /** Attach the turn. Until then no tool call or question can be served. */
++  bind: (binding: CliSessionBinding) => void;
++  bridge: AskUserBridge;
++  /** Kill the process if it still runs and release everything it registered. */
++  dispose: () => Promise<void>;
++  readonly exited: boolean;
++  handle: SpawnAgentHandle;
++  /** Id the CLI's MCP URL and stream events carry; a real run's events are restamped. */
++  key: string;
++  signature: string;
++  startedAt: number;
++}
++
++interface StartCliSessionOptions {
++  /** A bridge the caller already consumes; one is created otherwise. */
++  bridge?: AskUserBridge;
++  config: WorkerConfig;
++  key: string;
++  mcp: LobeBuiltinMcpServer;
++  request: ClaudeCodeAssistantRequest;
++  spawn?: typeof spawnAgent;
++}
++
++/** Everything fixed at CLI start. A waiting process only serves an identical request. */
++export const cliRequestSignature = (request: ClaudeCodeAssistantRequest): string =>
++  createHash('sha256')
++    .update(
++      JSON.stringify([
++        request.protocol,
++        request.model,
++        request.effort ?? null,
++        request.systemPrompt ?? null,
++        request.tools,
++      ]),
++    )
++    .digest('hex');
++
++export const startCliSession = async ({
++  bridge: givenBridge,
++  config,
++  key,
++  mcp,
++  request,
++  spawn = spawnAgent,
++}: StartCliSessionOptions): Promise<CliSession> => {
++  let binding: CliSessionBinding | undefined;
++  const bridge =
++    givenBridge ?? new AskUserBridge(key, { getStepIndex: () => binding?.getStepIndex() ?? 0 });
++  let directory: string | undefined;
++  let registered = false;
++  let handle: SpawnAgentHandle | undefined;
++  let exited = false;
++  let disposal: Promise<void> | undefined;
++
++  const release = async () => {
++    if (registered) mcp.unregisterOperation(key);
++    registered = false;
++    if (directory) await rm(directory, { force: true, recursive: true });
++  };
++
++  try {
++    mcp.registerOperation(key, bridge, {
++      tools: request.tools.map((tool) => ({
++        description: tool.description,
++        handler: async ({ operationId, toolCallId }, args) => {
++          if (operationId !== key) throw new Error('MCP operation mismatch');
++          // A CLI has no prompt before its turn is attached, so it cannot call a tool.
++          if (!binding) throw new Error('Tool call before the turn started');
++          return binding.callTool(tool, toolCallId, args);
++        },
++        inputSchema: tool.inputSchema,
++        name: tool.name,
++      })),
++      // One plugin's unusable schema must not cost the whole turn; the model
++      // simply does not see that tool, and the server still validates calls.
++      onInvalidTool: (name, error) =>
++        console.error(
++          `Claude Code tool left out of this run: ${name}:`,
++          error instanceof Error ? error.message : 'invalid schema',
++        ),
++    });
++    registered = true;
++
++    const extraArgs = [
++      '--mcp-config',
++      JSON.stringify({ mcpServers: { lobe_cc: { type: 'http', url: mcp.urlForOperation(key) } } }),
++    ];
++    if (request.model !== 'default') extraArgs.push('--model', request.model);
++    if (request.effort) extraArgs.push('--effort', request.effort);
++    // Every LobeHub turn supplies its complete prepared context to a fresh CLI
++    // session. Only the user's official login and workspace files persist.
++    if (request.systemPrompt) {
++      // Keep arbitrary prompt text and large prepared context out of argv.
++      directory = await mkdtemp(path.join(tmpdir(), 'lobe-cc-'));
++      const systemPromptFile = path.join(directory, 'system-prompt.txt');
++      await writeFile(systemPromptFile, request.systemPrompt, { flag: 'wx', mode: 0o600 });
++      extraArgs.push('--append-system-prompt-file', systemPromptFile);
++    }
++    extraArgs.push('--session-id', randomUUID());
++
++    handle = await spawn({
++      agentType: 'claude-code',
++      askUserBridge: bridge,
++      command: config.cliCommand,
++      commandVersion: config.cliVersion,
++      cwd: config.workspaceDir,
++      deferPrompt: true,
++      env: {
++        ...workerCliEnvironment(config),
++        // Skips the CLI's post-turn summary and telemetry, which kept the process
++        // (and so the single worker slot) busy for seconds after the answer.
++        CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
++      },
++      extraArgs,
++      includePartialMessages: true,
++      inheritEnv: false,
++      integrationMode: 'lobehub-assistant',
++      onRawStdout: (chunk) => binding?.onStdout(chunk),
++      operationId: key,
++      prompt: '',
++    });
++  } catch (error) {
++    await release();
++    throw error;
++  }
++
++  const spawned = handle;
++  // No raw stderr logging: it can contain account identifiers or tool arguments.
++  spawned.stderr.resume();
++  void spawned.exit.then(
++    () => (exited = true),
++    () => (exited = true),
++  );
++
++  return {
++    bind: (next) => {
++      binding = next;
++    },
++    bridge,
++    dispose: () =>
++      (disposal ??= (async () => {
++        let escalation: ReturnType<typeof setTimeout> | undefined;
++        if (!exited) {
++          bridge.cancelAll('session_ended');
++          spawned.kill('SIGTERM');
++          escalation = setTimeout(() => spawned.kill('SIGKILL'), 3000);
++        }
++        try {
++          await spawned.exit;
++        } catch {
++          // A process that never started has nothing left to stop.
++        } finally {
++          clearTimeout(escalation);
++          await release();
++        }
++      })()),
++    get exited() {
++      return exited;
++    },
++    handle: spawned,
++    key,
++    signature: cliRequestSignature(request),
++    startedAt: Date.now(),
++  };
++};
++
++interface CliPrewarmerOptions {
++  config: WorkerConfig;
++  mcp: LobeBuiltinMcpServer;
++  signal: AbortSignal;
++  spawn?: typeof spawnAgent;
++}
++
++/**
++ * Keeps at most one CLI started ahead of the next turn. Its system prompt,
++ * tools and model are fixed at start, so it is used only for a request that is
++ * identical in all of them; anything else starts a fresh process as before.
++ * An idle CLI has no prompt and makes no model call.
++ */
++export class CliPrewarmer {
++  private timer?: ReturnType<typeof setTimeout>;
++  private waiting?: CliSession;
++
++  constructor(private readonly options: CliPrewarmerOptions) {}
++
++  /** The waiting CLI when it was started for exactly this request, else none. */
++  take(request: ClaudeCodeAssistantRequest): CliSession | undefined {
++    const session = this.waiting;
++    if (!session) return undefined;
++    this.forget();
++    if (!session.exited && session.signature === cliRequestSignature(request)) return session;
++    void session.dispose();
++    return undefined;
++  }
++
++  /** Start a CLI for a repeat of this request. Never throws: prewarming is optional. */
++  async prepare(request: ClaudeCodeAssistantRequest): Promise<void> {
++    const { config, mcp, signal, spawn } = this.options;
++    if (config.prewarmIdleMs <= 0 || signal.aborted) return;
++    await this.clear();
++    try {
++      const session = await startCliSession({
++        config,
++        key: `warm-${randomUUID()}`,
++        mcp,
++        request,
++        spawn,
++      });
++      if (signal.aborted) return void (await session.dispose());
++      this.waiting = session;
++      this.timer = setTimeout(() => void this.clear(), config.prewarmIdleMs);
++      this.timer.unref?.();
++      // A process that dies while waiting is simply not there for the next turn.
++      void session.handle.exit
++        .catch(() => {})
++        .then(() => {
++          if (this.waiting === session) void this.clear();
++        });
++    } catch (error) {
++      console.error(
++        'Could not start a Claude Code process ahead of the next turn:',
++        error instanceof Error ? error.message : 'unknown error',
++      );
++    }
++  }
++
++  async clear(): Promise<void> {
++    const session = this.waiting;
++    this.forget();
++    await session?.dispose();
++  }
++
++  private forget() {
++    clearTimeout(this.timer);
++    this.timer = undefined;
++    this.waiting = undefined;
++  }
++}
 diff --git a/apps/claude-code-worker/src/config.test.ts b/apps/claude-code-worker/src/config.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..f345c699e34f105c6c577fdc1c3aaac481ab861c
+index 0000000000000000000000000000000000000000..026544e2bcbc42a9fe44a08cde8da23d29c58692
 --- /dev/null
 +++ b/apps/claude-code-worker/src/config.test.ts
-@@ -0,0 +1,46 @@
+@@ -0,0 +1,55 @@
 +import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 +import os from 'node:os';
 +import path from 'node:path';
@@ -1265,7 +1799,16 @@ index 0000000000000000000000000000000000000000..f345c699e34f105c6c577fdc1c3aaac4
 +      LOBEHUB_WORKER_SERVER_URL: 'https://lobe.example',
 +      LOBEHUB_WORKER_TOKEN_FILE: tokenFile,
 +    };
-+    expect((await loadWorkerConfig(env)).token).toBe('worker-secret');
++    const config = await loadWorkerConfig(env);
++    expect(config.token).toBe('worker-secret');
++    // Prewarming is on by default, can be switched off, and rejects nonsense.
++    expect(config.prewarmIdleMs).toBe(600_000);
++    expect(
++      (await loadWorkerConfig({ ...env, LOBEHUB_WORKER_PREWARM_IDLE_MS: '0' })).prewarmIdleMs,
++    ).toBe(0);
++    await expect(
++      loadWorkerConfig({ ...env, LOBEHUB_WORKER_PREWARM_IDLE_MS: 'soon' }),
++    ).rejects.toThrow('LOBEHUB_WORKER_PREWARM_IDLE_MS');
 +    await expect(
 +      loadWorkerConfig({ ...env, LOBEHUB_WORKER_SERVER_URL: 'https://user:secret@lobe.example' }),
 +    ).rejects.toThrow('without embedded credentials');
@@ -1285,10 +1828,10 @@ index 0000000000000000000000000000000000000000..f345c699e34f105c6c577fdc1c3aaac4
 +});
 diff --git a/apps/claude-code-worker/src/config.ts b/apps/claude-code-worker/src/config.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..17f6fe362033e7334694951a53daeaa9b7435aea
+index 0000000000000000000000000000000000000000..0bec43613fe90009afb22e175d1d31b046a43a2b
 --- /dev/null
 +++ b/apps/claude-code-worker/src/config.ts
-@@ -0,0 +1,69 @@
+@@ -0,0 +1,79 @@
 +import { readFile } from 'node:fs/promises';
 +import path from 'node:path';
 +
@@ -1302,6 +1845,11 @@ index 0000000000000000000000000000000000000000..17f6fe362033e7334694951a53daeaa9
 +  heartbeatIntervalMs: number;
 +  home: string;
 +  pollIntervalMs: number;
++  /**
++   * How long a CLI started ahead of the next turn may wait before it is
++   * stopped. 0 turns prewarming off.
++   */
++  prewarmIdleMs: number;
 +  serverUrl: string;
 +  stateDir: string;
 +  token: string;
@@ -1332,6 +1880,10 @@ index 0000000000000000000000000000000000000000..17f6fe362033e7334694951a53daeaa9
 +  }
 +  const token = (await readFile(required('LOBEHUB_WORKER_TOKEN_FILE'), 'utf8')).trim();
 +  if (!token || /[\r\n]/.test(token)) throw new Error('Invalid worker service token file');
++  const prewarmIdleMs = Number(env.LOBEHUB_WORKER_PREWARM_IDLE_MS?.trim() || 600_000);
++  if (!Number.isInteger(prewarmIdleMs) || prewarmIdleMs < 0 || prewarmIdleMs > 3_600_000) {
++    throw new Error('LOBEHUB_WORKER_PREWARM_IDLE_MS must be 0 to 3600000');
++  }
 +  const workerId = required('LOBEHUB_WORKER_ID');
 +  if (!/^[\w-]{1,128}$/.test(workerId)) throw new Error('Invalid worker id');
 +  return {
@@ -1343,6 +1895,7 @@ index 0000000000000000000000000000000000000000..17f6fe362033e7334694951a53daeaa9
 +    home: absolute('CLAUDE_CODE_HOME', '/home/claude'),
 +    heartbeatIntervalMs: 15_000,
 +    pollIntervalMs: 3000,
++    prewarmIdleMs,
 +    serverUrl: url.toString().replace(/\/$/, ''),
 +    stateDir: absolute('LOBEHUB_WORKER_STATE_DIR', '/state'),
 +    token,
@@ -1962,10 +2515,10 @@ index 0000000000000000000000000000000000000000..1830bdc3f14954bb31423fcc215c97f7
 +};
 diff --git a/apps/claude-code-worker/src/runTiming.test.ts b/apps/claude-code-worker/src/runTiming.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..2d81eff2f7a070bf331a273378589bb55fe7ac3b
+index 0000000000000000000000000000000000000000..50ea06c6488d4b092fc7361d5965a353ea182b80
 --- /dev/null
 +++ b/apps/claude-code-worker/src/runTiming.test.ts
-@@ -0,0 +1,87 @@
+@@ -0,0 +1,90 @@
 +import { describe, expect, it } from 'vitest';
 +
 +import { RunTiming } from './runTiming';
@@ -2046,19 +2599,22 @@ index 0000000000000000000000000000000000000000..2d81eff2f7a070bf331a273378589bb5
 +  });
 +});
 +
-+describe('RunTiming.measure', () => {
-+  it('records how long a setup step took and returns its result', async () => {
-+    const timing = new RunTiming();
-+    expect(await timing.measure('toolsMs', () => 'registered')).toBe('registered');
-+    expect(timing.toJSON().toolsMs).toEqual(expect.any(Number));
++describe('RunTiming for a CLI started ahead of the turn', () => {
++  it('measures from the prompt and reports how long the process had waited', () => {
++    const timing = new RunTiming({}, 5000);
++    // Output before the turn is attached is not this turn's.
++    timing.push(line({ subtype: 'init', type: 'system' }), 4000);
++    timing.markSpawned(5020, 1000);
++    timing.push(line({ subtype: 'init', type: 'system' }), 5060);
++    expect(timing.toJSON()).toEqual({ initMs: 40, preSpawnMs: 20, warmMs: 4020 });
 +  });
 +});
 diff --git a/apps/claude-code-worker/src/runTiming.ts b/apps/claude-code-worker/src/runTiming.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..68ff6fff2dcb6adbdb6418f69a7e1790d0c81aff
+index 0000000000000000000000000000000000000000..e3cf674a8584486ffb0752125aa4ae63393a17d9
 --- /dev/null
 +++ b/apps/claude-code-worker/src/runTiming.ts
-@@ -0,0 +1,131 @@
+@@ -0,0 +1,126 @@
 +/**
 + * Per-run latency and prompt-cache diagnostics read from the CLI's raw
 + * stream-json. Only timestamps and token counts are kept: never content,
@@ -2079,8 +2635,8 @@ index 0000000000000000000000000000000000000000..68ff6fff2dcb6adbdb6418f69a7e1790
 +  /** Worker setup from receiving the claim to starting the CLI. */
 +  preSpawnMs?: number;
 +  queuedMs?: number;
-+  /** Registering this turn's tools with the local MCP bridge. */
-+  toolsMs?: number;
++  /** Set when a CLI started ahead of the turn served it: how long it had waited. */
++  warmMs?: number;
 +  /** CLI exit, from spawn. */
 +  exitMs?: number;
 +  /** Final result line, from spawn. */
@@ -2117,19 +2673,14 @@ index 0000000000000000000000000000000000000000..68ff6fff2dcb6adbdb6418f69a7e1790
 +    this.startedAt = now;
 +  }
 +
-+  /** Time a synchronous or awaited setup step. */
-+  async measure<T>(key: 'toolsMs', step: () => T | Promise<T>): Promise<T> {
-+    const started = Date.now();
-+    try {
-+      return await step();
-+    } finally {
-+      this.report[key] = Date.now() - started;
-+    }
-+  }
-+
-+  markSpawned(now = Date.now()) {
++  /**
++   * The moment this turn reached a CLI: a fresh process starting, or the prompt
++   * going to one that was already waiting since `warmSince`.
++   */
++  markSpawned(now = Date.now(), warmSince?: number) {
 +    this.spawnedAt = now;
 +    this.report.preSpawnMs = now - this.startedAt;
++    if (warmSince !== undefined) this.report.warmMs = now - warmSince;
 +  }
 +
 +  /** Feed raw stdout; tolerant of chunks split mid-line and of non-JSON lines. */
@@ -2192,10 +2743,10 @@ index 0000000000000000000000000000000000000000..68ff6fff2dcb6adbdb6418f69a7e1790
 +}
 diff --git a/apps/claude-code-worker/src/runner.test.ts b/apps/claude-code-worker/src/runner.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..396e94a080d1878be14a137841caf0a91bc612a0
+index 0000000000000000000000000000000000000000..e2d3eb52da1e2c3a9462d01d066c2925e25b4373
 --- /dev/null
 +++ b/apps/claude-code-worker/src/runner.test.ts
-@@ -0,0 +1,299 @@
+@@ -0,0 +1,316 @@
 +import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 +import os from 'node:os';
 +import path from 'node:path';
@@ -2215,8 +2766,15 @@ index 0000000000000000000000000000000000000000..396e94a080d1878be14a137841caf0a9
 +
 +describe('ordinary assistant worker execution', () => {
 +  let root: string;
++  /** Prompts delivered to the fake CLI, with the operation id it was spawned under. */
++  let submitted: Array<{ key: string; prompt: unknown }>;
++  const submitPrompt = (key: string) => async (prompt: unknown) => {
++    submitted.push({ key, prompt });
++    return true;
++  };
 +  beforeEach(async () => {
 +    root = await mkdtemp(path.join(os.tmpdir(), 'worker-run-'));
++    submitted = [];
 +  });
 +  afterEach(async () => {
 +    await rm(root, { force: true, recursive: true });
@@ -2312,6 +2870,7 @@ index 0000000000000000000000000000000000000000..396e94a080d1878be14a137841caf0a9
 +      pid: 42,
 +      sessionId: '12345678-1234-1234-1234-123456789012',
 +      stderr: new PassThrough(),
++      submitPrompt: submitPrompt(options.operationId),
 +    }));
 +    await runOperation(claim, {
 +      api: { post } as WorkerApi,
@@ -2332,7 +2891,10 @@ index 0000000000000000000000000000000000000000..396e94a080d1878be14a137841caf0a9
 +    expect(spawned.extraArgs).toContain('--session-id');
 +    expect(spawned.extraArgs).not.toContain('--resume');
 +    expect(spawned).not.toHaveProperty('resumeSessionId');
-+    expect(spawned.prompt).toBe('hello');
++    // The process starts without its prompt; the turn is delivered once it is attached.
++    expect(spawned.deferPrompt).toBe(true);
++    expect(spawned.prompt).toBe('');
++    expect(submitted).toEqual([{ key: 'operation-1', prompt: 'hello' }]);
 +    // The CLI must not stay alive summarizing the turn after the answer.
 +    expect(spawned.env).toMatchObject({ CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' });
 +    expect(spawned.onRawStdout).toEqual(expect.any(Function));
@@ -2388,6 +2950,7 @@ index 0000000000000000000000000000000000000000..396e94a080d1878be14a137841caf0a9
 +      pid: 42,
 +      sessionId: 'not-a-cross-turn-mapping',
 +      stderr: new PassThrough(),
++      submitPrompt: submitPrompt(options.operationId),
 +    }));
 +    for (const operationId of ['operation-1', 'operation-2']) {
 +      const claim = testClaim({ operationId });
@@ -2403,7 +2966,10 @@ index 0000000000000000000000000000000000000000..396e94a080d1878be14a137841caf0a9
 +    expect(spawn).toHaveBeenCalledTimes(2);
 +    const sessions = spawn.mock.calls.map(([options]) => {
 +      expect(options.cwd).toBe(config.workspaceDir);
-+      expect(options.prompt).toBe(`Prepared full context for ${options.operationId}`);
++      expect(submitted).toContainEqual({
++        key: options.operationId,
++        prompt: `Prepared full context for ${options.operationId}`,
++      });
 +      expect(options.extraArgs).not.toContain('--resume');
 +      expect(options).not.toHaveProperty('resumeSessionId');
 +      const sessionId = options.extraArgs![options.extraArgs!.indexOf('--session-id') + 1];
@@ -2436,6 +3002,7 @@ index 0000000000000000000000000000000000000000..396e94a080d1878be14a137841caf0a9
 +      pid: 42,
 +      sessionId: undefined,
 +      stderr: new PassThrough(),
++      submitPrompt: submitPrompt('operation-1'),
 +    }));
 +    await runOperation(claim, {
 +      api: { post } as WorkerApi,
@@ -2479,6 +3046,7 @@ index 0000000000000000000000000000000000000000..396e94a080d1878be14a137841caf0a9
 +      pid: 42,
 +      sessionId: undefined,
 +      stderr: new PassThrough(),
++      submitPrompt: submitPrompt('operation-1'),
 +    }));
 +    await runOperation(claim, {
 +      api: { post } as WorkerApi,
@@ -2497,13 +3065,11 @@ index 0000000000000000000000000000000000000000..396e94a080d1878be14a137841caf0a9
 +});
 diff --git a/apps/claude-code-worker/src/runner.ts b/apps/claude-code-worker/src/runner.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..4b4f0c38fc16191ca63ea54ef97a857a5b89db0c
+index 0000000000000000000000000000000000000000..96d52f16b15ec7d1d8c997702d753afe89e83d11
 --- /dev/null
 +++ b/apps/claude-code-worker/src/runner.ts
-@@ -0,0 +1,276 @@
-+import { randomUUID } from 'node:crypto';
-+import { mkdir, rm, writeFile } from 'node:fs/promises';
-+import path from 'node:path';
+@@ -0,0 +1,267 @@
++import { mkdir } from 'node:fs/promises';
 +import { setTimeout as delay } from 'node:timers/promises';
 +
 +import type { AgentStreamEvent } from '@lobechat/agent-gateway-client';
@@ -2514,12 +3080,12 @@ index 0000000000000000000000000000000000000000..4b4f0c38fc16191ca63ea54ef97a857a
 +  type ClaudeCodeWorkerClaim,
 +  type ClaudeCodeWorkerToolResult,
 +} from '@lobechat/heterogeneous-agents/protocol';
-+import { spawnAgent, type SpawnAgentHandle } from '@lobechat/heterogeneous-agents/spawn';
++import type { spawnAgent, SpawnAgentHandle } from '@lobechat/heterogeneous-agents/spawn';
 +
 +import type { WorkerApi } from './api';
 +import { runRoute, WorkerApiError } from './api';
++import { type CliPrewarmer, type CliSession, startCliSession } from './cliSession';
 +import type { WorkerConfig } from './config';
-+import { workerCliEnvironment } from './config';
 +import { RunLease } from './lease';
 +import { type RunFinish, RunOutbox } from './outbox';
 +import { RunTiming } from './runTiming';
@@ -2531,6 +3097,8 @@ index 0000000000000000000000000000000000000000..4b4f0c38fc16191ca63ea54ef97a857a
 +  claimMs?: number;
 +  config: WorkerConfig;
 +  mcp: LobeBuiltinMcpServer;
++  /** Holds a CLI started ahead of this turn, and starts one for the next. */
++  prewarmer?: CliPrewarmer;
 +  signal: AbortSignal;
 +  spawn?: typeof spawnAgent;
 +}
@@ -2546,11 +3114,12 @@ index 0000000000000000000000000000000000000000..4b4f0c38fc16191ca63ea54ef97a857a
 +    queuedMs: claim.timing?.queuedMs,
 +  });
 +  const box = await RunOutbox.create(config.stateDir, claim);
-+  const systemPromptFile = path.join(box.directory, 'system-prompt.txt');
++  // A CLI already waiting with this turn's exact system prompt, tools and model.
++  let session: CliSession | undefined = deps.prewarmer?.take(claim.request);
 +  const results = new Map<string, ClaudeCodeWorkerToolResult>();
 +  const requests = new Set<Promise<void>>();
 +  const delivery = new AbortController();
-+  let handle: SpawnAgentHandle | undefined;
++  let handle: SpawnAgentHandle | undefined = session?.handle;
 +  let escalation: ReturnType<typeof setTimeout> | undefined;
 +  let stepIndex = 0;
 +  let streamFailed = false;
@@ -2559,7 +3128,8 @@ index 0000000000000000000000000000000000000000..4b4f0c38fc16191ca63ea54ef97a857a
 +  // arrives while a delivery is already in flight.
 +  let kickDelivery: (() => void) | undefined;
 +  let eventsPending = false;
-+  const bridge = new AskUserBridge(claim.operationId, { getStepIndex: () => stepIndex });
++  const ownBridge = () => new AskUserBridge(claim.operationId, { getStepIndex: () => stepIndex });
++  let bridge = session?.bridge ?? ownBridge();
 +  const lease = new RunLease(api, claim.operationId, claim.leaseToken, claim.leaseExpiresAt, () => {
 +    bridge.cancelAll('session_ended');
 +    handle?.kill('SIGTERM');
@@ -2570,7 +3140,12 @@ index 0000000000000000000000000000000000000000..4b4f0c38fc16191ca63ea54ef97a857a
 +  if (signal.aborted) shutdown();
 +  lease.start();
 +
-+  const append = async (event: AgentStreamEvent) => {
++  const append = async (streamed: AgentStreamEvent) => {
++    // A process started ahead of the turn stamps its own placeholder id.
++    const event =
++      streamed.operationId === claim.operationId
++        ? streamed
++        : { ...streamed, operationId: claim.operationId };
 +    stepIndex = Math.max(stepIndex, event.stepIndex);
 +    if (
 +      event.type === 'error' ||
@@ -2613,18 +3188,23 @@ index 0000000000000000000000000000000000000000..4b4f0c38fc16191ca63ea54ef97a857a
 +      }
 +    }
 +  };
-+  const bridgeEvents = (async () => {
-+    for await (const event of bridge.events()) {
-+      await append(event);
-+      if (event.type === 'agent_intervention_request') {
-+        const request = answerQuestion(event).finally(() => requests.delete(request));
-+        requests.add(request);
-+      }
-+    }
-+  })().catch(() => {
-+    streamFailed = true;
-+    lease.stop('interrupted');
-+  });
++  const bridgeLoops: Promise<void>[] = [];
++  const forwardQuestions = (source: AskUserBridge) =>
++    bridgeLoops.push(
++      (async () => {
++        for await (const event of source.events()) {
++          await append(event);
++          if (event.type === 'agent_intervention_request') {
++            const request = answerQuestion(event).finally(() => requests.delete(request));
++            requests.add(request);
++          }
++        }
++      })().catch(() => {
++        streamFailed = true;
++        lease.stop('interrupted');
++      }),
++    );
++  forwardQuestions(bridge);
 +  const deliveries = (async () => {
 +    while (!delivery.signal.aborted) {
 +      eventsPending = false;
@@ -2654,84 +3234,61 @@ index 0000000000000000000000000000000000000000..4b4f0c38fc16191ca63ea54ef97a857a
 +  try {
 +    if (claim.request.protocol !== CLAUDE_CODE_WORKER_PROTOCOL)
 +      throw new Error('Unsupported worker protocol');
-+    const cwd = config.workspaceDir;
-+    await mkdir(cwd, { mode: 0o700, recursive: true });
++    await mkdir(config.workspaceDir, { mode: 0o700, recursive: true });
 +    lease.controller.signal.throwIfAborted();
-+    await timing.measure('toolsMs', () =>
-+      mcp.registerOperation(claim.operationId, bridge, {
-+        tools: claim.request.tools.map((tool) => ({
-+          description: tool.description,
-+          handler: async ({ operationId, toolCallId }, args) => {
-+            if (operationId !== claim.operationId) throw new Error('MCP operation mismatch');
-+            const result = await awaitToolResult(
-+              api,
-+              operationId,
-+              {
-+                args,
-+                leaseToken: claim.leaseToken,
-+                name: tool.name,
-+                toolCallId,
-+              },
-+              lease.controller.signal,
-+            );
-+            results.set(toolCallId, result);
-+            return result;
-+          },
-+          inputSchema: tool.inputSchema,
-+          name: tool.name,
-+        })),
-+        // One plugin's unusable schema must not cost the whole turn; the model
-+        // simply does not see that tool, and the server still validates calls.
-+        onInvalidTool: (name, error) =>
-+          console.error(
-+            `Claude Code tool left out of this run: ${name}:`,
-+            error instanceof Error ? error.message : 'invalid schema',
-+          ),
-+      }),
-+    );
-+    const extraArgs = [
-+      '--mcp-config',
-+      JSON.stringify({
-+        mcpServers: { lobe_cc: { type: 'http', url: mcp.urlForOperation(claim.operationId) } },
-+      }),
-+    ];
-+    if (claim.request.model !== 'default') extraArgs.push('--model', claim.request.model);
-+    if (claim.request.effort) extraArgs.push('--effort', claim.request.effort);
-+    // Every LobeHub turn supplies its complete prepared context to a fresh CLI
-+    // session. Only the user's official login and workspace files persist.
-+    if (claim.request.systemPrompt) {
-+      // Keep arbitrary prompt text and large prepared context out of argv.
-+      await writeFile(systemPromptFile, claim.request.systemPrompt, { flag: 'wx', mode: 0o600 });
-+      extraArgs.push('--append-system-prompt-file', systemPromptFile);
++    const attach = (target: CliSession) => {
++      target.bind({
++        callTool: async (tool, toolCallId, args) => {
++          const result = await awaitToolResult(
++            api,
++            claim.operationId,
++            { args, leaseToken: claim.leaseToken, name: tool.name, toolCallId },
++            lease.controller.signal,
++          );
++          results.set(toolCallId, result);
++          return result;
++        },
++        getStepIndex: () => stepIndex,
++        onStdout: (chunk) => timing.push(chunk),
++      });
++      handle = target.handle;
++      if (lease.controller.signal.aborted) {
++        target.handle.kill('SIGTERM');
++        escalation = setTimeout(() => target.handle.kill('SIGKILL'), 3000);
++      }
++    };
++    let submitted = false;
++    if (session) {
++      attach(session);
++      timing.markSpawned(Date.now(), session.startedAt);
++      // False means nothing was written (the waiting process is gone), so a
++      // fresh process below still delivers this prompt exactly once.
++      submitted = (await session.handle.submitPrompt?.(claim.request.prompt)) ?? false;
++      if (!submitted) {
++        const stale = session;
++        session = undefined;
++        handle = undefined;
++        // Releasing the waiting process closes its bridge for good.
++        await stale.dispose();
++        bridge = ownBridge();
++        forwardQuestions(bridge);
++      }
 +    }
-+    extraArgs.push('--session-id', randomUUID());
-+    timing.markSpawned();
-+    handle = await (deps.spawn ?? spawnAgent)({
-+      agentType: 'claude-code',
-+      askUserBridge: bridge,
-+      command: config.cliCommand,
-+      commandVersion: config.cliVersion,
-+      cwd,
-+      env: {
-+        ...workerCliEnvironment(config),
-+        // Skips the CLI's post-turn summary and telemetry, which kept the process
-+        // (and so the single worker slot) busy for seconds after the answer.
-+        CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
-+      },
-+      extraArgs,
-+      includePartialMessages: true,
-+      inheritEnv: false,
-+      integrationMode: 'lobehub-assistant',
-+      onRawStdout: (chunk) => timing.push(chunk),
-+      operationId: claim.operationId,
-+      prompt: claim.request.prompt,
-+    });
-+    // No raw stderr logging: it can contain account identifiers or tool arguments.
-+    handle.stderr.resume();
-+    if (lease.controller.signal.aborted) {
-+      handle.kill('SIGTERM');
-+      escalation = setTimeout(() => handle?.kill('SIGKILL'), 3000);
++    if (!session) {
++      timing.markSpawned();
++      session = await startCliSession({
++        // The waiting process owned its bridge; a fresh one reuses this run's.
++        bridge,
++        config,
++        key: claim.operationId,
++        mcp,
++        request: claim.request,
++        spawn: deps.spawn,
++      });
++      attach(session);
++      submitted = (await session.handle.submitPrompt?.(claim.request.prompt)) ?? false;
 +    }
++    if (!submitted || !handle) throw new Error('Claude Code did not accept the prompt');
 +    for await (const event of handle.events) await append(event);
 +    const exit = await handle.exit;
 +    timing.markExit();
@@ -2763,19 +3320,21 @@ index 0000000000000000000000000000000000000000..4b4f0c38fc16191ca63ea54ef97a857a
 +    signal.removeEventListener('abort', shutdown);
 +    bridge.cancelAll('session_ended');
 +    lease.controller.abort();
-+    await bridgeEvents;
++    await Promise.all(bridgeLoops);
 +    await Promise.all(requests);
 +    await lease.close();
-+    mcp.unregisterOperation(claim.operationId);
++    await session?.dispose();
 +    delivery.abort();
 +    await deliveries;
-+    await rm(systemPromptFile, { force: true });
 +  }
 +  // Timings and token counts only, for tuning time to first token and cache reuse.
 +  console.info('Claude Code run timing:', JSON.stringify(timing));
 +  await box.setFinish(finish);
 +  // A failure leaves the journal for recovery; no new model task is attempted.
 +  await box.finish(api, signal);
++  // The next turn of a conversation nearly always repeats this one's system
++  // prompt, tools and model, so its CLI can start now instead of after the claim.
++  if (finish.status === 'completed') await deps.prewarmer?.prepare(claim.request);
 +};
 diff --git a/apps/claude-code-worker/src/service.test.ts b/apps/claude-code-worker/src/service.test.ts
 new file mode 100644
@@ -2884,10 +3443,10 @@ index 0000000000000000000000000000000000000000..bc07014ce21e47109b463978e81b2c2d
 +});
 diff --git a/apps/claude-code-worker/src/service.ts b/apps/claude-code-worker/src/service.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..ec91ddc76b751cae19f4036de692537a7a6095da
+index 0000000000000000000000000000000000000000..7543011baf882d95c4f27b67a695d70699a1b609
 --- /dev/null
 +++ b/apps/claude-code-worker/src/service.ts
-@@ -0,0 +1,103 @@
+@@ -0,0 +1,110 @@
 +import { mkdir } from 'node:fs/promises';
 +import { setTimeout as delay } from 'node:timers/promises';
 +
@@ -2900,6 +3459,7 @@ index 0000000000000000000000000000000000000000..ec91ddc76b751cae19f4036de692537a
 +
 +import type { WorkerApi } from './api';
 +import { discoverClaudeModels, readClaudeAuthStatus } from './claudeStatus';
++import { CliPrewarmer } from './cliSession';
 +import type { WorkerConfig } from './config';
 +import { recoverRuns } from './outbox';
 +import { runOperation } from './runner';
@@ -2912,6 +3472,7 @@ index 0000000000000000000000000000000000000000..ec91ddc76b751cae19f4036de692537a
 +  }
 +  const mcp = new LobeBuiltinMcpServer();
 +  await mcp.start();
++  const prewarmer = new CliPrewarmer({ config, mcp, signal });
 +  const capabilities: ClaudeCodeWorkerCapabilities = {
 +    cliVersion: config.cliVersion,
 +    protocolVersion: CLAUDE_CODE_WORKER_PROTOCOL,
@@ -2927,7 +3488,11 @@ index 0000000000000000000000000000000000000000..ec91ddc76b751cae19f4036de692537a
 +        health.authStatus = await readClaudeAuthStatus(config);
 +        if (health.authStatus === 'logged_in' && !capabilities.models) {
 +          capabilities.models = await discoverClaudeModels(config);
-+        } else if (health.authStatus !== 'logged_in') capabilities.models = undefined;
++        } else if (health.authStatus !== 'logged_in') {
++          capabilities.models = undefined;
++          // A waiting CLI started under the previous login must not serve a turn.
++          void prewarmer.clear();
++        }
 +        await api.post('/heartbeat', { authStatus: health.authStatus, capabilities }, signal);
 +        health.lastHeartbeat = Date.now();
 +      } catch {
@@ -2963,7 +3528,7 @@ index 0000000000000000000000000000000000000000..ec91ddc76b751cae19f4036de692537a
 +          );
 +          const claimMs = Date.now() - requestedAt;
 +          if (claim) {
-+            await runOperation(claim, { api, claimMs, config, mcp, signal });
++            await runOperation(claim, { api, claimMs, config, mcp, prewarmer, signal });
 +            pause = false;
 +          } else if (claimMs >= 1000) {
 +            // A server without long polling answers at once; keep its old cadence.
@@ -2988,15 +3553,16 @@ index 0000000000000000000000000000000000000000..ec91ddc76b751cae19f4036de692537a
 +    }
 +  } finally {
 +    await heartbeats;
++    await prewarmer.clear();
 +    await mcp.stop();
 +  }
 +};
 diff --git a/apps/claude-code-worker/src/testUtils.ts b/apps/claude-code-worker/src/testUtils.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..719dd74896f28188bfd4a3f49e83996d7142af89
+index 0000000000000000000000000000000000000000..41166cecf73b7a084ca10e9a8cb70704a2a67f2c
 --- /dev/null
 +++ b/apps/claude-code-worker/src/testUtils.ts
-@@ -0,0 +1,49 @@
+@@ -0,0 +1,50 @@
 +import path from 'node:path';
 +
 +import type { AgentStreamEvent } from '@lobechat/agent-gateway-client';
@@ -3040,6 +3606,7 @@ index 0000000000000000000000000000000000000000..719dd74896f28188bfd4a3f49e83996d
 +  home: path.join(root, 'home'),
 +  heartbeatIntervalMs: 20,
 +  pollIntervalMs: 100,
++  prewarmIdleMs: 0,
 +  serverUrl: 'https://lobehub.example',
 +  stateDir: path.join(root, 'state'),
 +  token: 'service-secret',
@@ -13961,10 +14528,10 @@ index 085dddd7ddb35a02f4cd54aaa3e0d076ffd1339a..88d161067d08eefd0cbfd93703d28d46
    type BuildClaudeCodeDirectEnvInput,
 diff --git a/packages/heterogeneous-agents/src/spawn/spawnAgent.assistant.test.ts b/packages/heterogeneous-agents/src/spawn/spawnAgent.assistant.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..d269c6cc094bff8750c71491103341ca78ffbc37
+index 0000000000000000000000000000000000000000..38d6f30f24854d98f067340c14042f0f340de9fa
 --- /dev/null
 +++ b/packages/heterogeneous-agents/src/spawn/spawnAgent.assistant.test.ts
-@@ -0,0 +1,159 @@
+@@ -0,0 +1,205 @@
 +import type { ChildProcess, SpawnOptions } from 'node:child_process';
 +import * as childProcess from 'node:child_process';
 +import { EventEmitter } from 'node:events';
@@ -14101,6 +14668,52 @@ index 0000000000000000000000000000000000000000..d269c6cc094bff8750c71491103341ca
 +    });
 +  });
 +
++  it('can start without its prompt and takes exactly one later', async () => {
++    const fake = createProc();
++    spawn.mockReturnValue(fake.proc as unknown as ChildProcess);
++    const handle = await spawnAgent({ ...assistantOptions, deferPrompt: true, prompt: '' });
++    const drain = (async () => {
++      for await (const _event of handle.events);
++    })();
++    // Nothing reaches the CLI, and its input stays open, until the turn exists.
++    await new Promise((resolve) => setImmediate(resolve));
++    expect(fake.input).toEqual([]);
++    expect(fake.proc.stdin.writableEnded).toBe(false);
++
++    expect(await handle.submitPrompt!('The real turn')).toBe(true);
++    expect(JSON.stringify(JSON.parse(fake.input.join('')))).toContain('The real turn');
++    expect(fake.proc.stdin.writableEnded).toBe(true);
++    // One process serves one prompt.
++    expect(await handle.submitPrompt!('A second turn')).toBe(false);
++    expect(fake.input.join('')).not.toContain('A second turn');
++
++    fake.proc.stdout.end();
++    fake.proc.stderr.end();
++    fake.proc.exitCode = 0;
++    fake.proc.emit('exit', 0, null);
++    await drain;
++  });
++
++  it('writes nothing to a deferred process that already exited', async () => {
++    const fake = createProc();
++    spawn.mockReturnValue(fake.proc as unknown as ChildProcess);
++    const handle = await spawnAgent({ ...assistantOptions, deferPrompt: true, prompt: '' });
++    const drain = (async () => {
++      for await (const _event of handle.events);
++    })();
++    fake.proc.stdout.end();
++    fake.proc.stderr.end();
++    fake.proc.exitCode = 1;
++    fake.proc.emit('exit', 1, null);
++    await drain;
++    expect(await handle.submitPrompt!('Too late')).toBe(false);
++    expect(fake.input).toEqual([]);
++    // An ordinary spawn exposes no way to send a second prompt.
++    const plain = createProc();
++    spawn.mockReturnValue(plain.proc as unknown as ChildProcess);
++    expect((await spawnAgent(assistantOptions)).submitPrompt).toBeUndefined();
++  });
++
 +  it('preserves resume for the existing Claude Code entry', async () => {
 +    const sessionId = '12345678-1234-1234-1234-123456789012';
 +    const result = await run({
@@ -14193,7 +14806,7 @@ index 0000000000000000000000000000000000000000..3bba683e57d29c9d54d6a2cb8f1913d9
 +  });
 +});
 diff --git a/packages/heterogeneous-agents/src/spawn/spawnAgent.ts b/packages/heterogeneous-agents/src/spawn/spawnAgent.ts
-index 93c09b2ccec62f715af66160b346e884fe6d3302..2576eb0affeadd05e924a787973f794e1c78e269 100644
+index 93c09b2ccec62f715af66160b346e884fe6d3302..0533ed8de5e0f35b4255b7fc88231ffaebfba523 100644
 --- a/packages/heterogeneous-agents/src/spawn/spawnAgent.ts
 +++ b/packages/heterogeneous-agents/src/spawn/spawnAgent.ts
 @@ -16,6 +16,12 @@ import {
@@ -14209,16 +14822,23 @@ index 93c09b2ccec62f715af66160b346e884fe6d3302..2576eb0affeadd05e924a787973f794e
  import { ClaudeCodeLiveInput } from './claudeCodeLiveInput';
  import { readClaudeCodeSessionCost } from './claudeCodeSessionCost';
  import { resolveCliSpawnPlan } from './cliSpawn';
-@@ -51,7 +57,7 @@ export interface SpawnAgentOptions {
+@@ -51,7 +57,14 @@ export interface SpawnAgentOptions {
    cwd?: string;
    /** Create a dedicated Unix process group. Disable beneath a detached wrapper. */
    detached?: boolean;
 -  /** Extra environment variables merged on top of `process.env`. */
++  /**
++   * (Claude Code only, not with `liveInput`) Start the process without its
++   * prompt and leave stdin open: the CLI loads its settings and connects its MCP
++   * servers while it waits. `prompt` is ignored; the caller delivers the turn
++   * with the handle's `submitPrompt`, which also closes stdin.
++   */
++  deferPrompt?: boolean;
 +  /** Extra environment variables; assistant mode accepts only explicit safe runtime values. */
    env?: Record<string, string>;
    /** Extra CLI arguments appended after the agent's preset flags. */
    extraArgs?: string[];
-@@ -62,6 +68,8 @@ export interface SpawnAgentOptions {
+@@ -62,6 +75,8 @@ export interface SpawnAgentOptions {
     * connected client renders live token streaming.
     */
    includePartialMessages?: boolean;
@@ -14227,7 +14847,7 @@ index 93c09b2ccec62f715af66160b346e884fe6d3302..2576eb0affeadd05e924a787973f794e
    /** Initial model selected through the agent protocol after session setup (Droid/TRAE ACP). */
    initialModel?: string;
    /**
-@@ -70,6 +78,8 @@ export interface SpawnAgentOptions {
+@@ -70,6 +85,8 @@ export interface SpawnAgentOptions {
     * plain string this is unused.
     */
    inputOptions?: BuildAgentInputOptions;
@@ -14236,7 +14856,20 @@ index 93c09b2ccec62f715af66160b346e884fe6d3302..2576eb0affeadd05e924a787973f794e
    /**
     * (Claude Code only) Keep stdin open while the session can still use input,
     * exposing `sendUserMessage` / `interruptTurn` on the handle. Runtime end is
-@@ -282,6 +292,7 @@ interface BuildSpawnArgsParams {
+@@ -157,6 +174,12 @@ export interface SpawnAgentHandle {
+    * runs the message as a new turn instead.
+    */
+   sendUserMessage?: (prompt: AgentPromptInput, options?: { uuid?: string }) => Promise<boolean>;
++  /**
++   * (Claude Code `deferPrompt` only) Deliver the one prompt this process was
++   * started for and close stdin. Resolves false, having written nothing, when
++   * a prompt was already submitted or the process can no longer take input.
++   */
++  submitPrompt?: (prompt: AgentPromptInput) => Promise<boolean>;
+   /**
+    * The agent's native session id, extracted from the `system:init` event.
+    * Available after the `events` async iterable has been fully consumed.
+@@ -282,6 +305,7 @@ interface BuildSpawnArgsParams {
    includePartialMessages: boolean;
    /** Per-agent input args produced by `buildAgentInput` (e.g. Codex `--image`). */
    inputArgs: string[];
@@ -14244,7 +14877,7 @@ index 93c09b2ccec62f715af66160b346e884fe6d3302..2576eb0affeadd05e924a787973f794e
    /** (Claude Code only) Replay consumed user messages for live input. */
    liveInput?: boolean;
    /** Native session id for resume; undefined for fresh runs. */
-@@ -292,6 +303,7 @@ const buildClaudeCodeArgs = ({
+@@ -292,6 +316,7 @@ const buildClaudeCodeArgs = ({
    extraArgs,
    includePartialMessages,
    inputArgs,
@@ -14252,7 +14885,7 @@ index 93c09b2ccec62f715af66160b346e884fe6d3302..2576eb0affeadd05e924a787973f794e
    liveInput,
    resumeSessionId,
  }: BuildSpawnArgsParams) => [
-@@ -302,6 +314,7 @@ const buildClaudeCodeArgs = ({
+@@ -302,6 +327,7 @@ const buildClaudeCodeArgs = ({
    ...(resumeSessionId ? ['--resume', resumeSessionId] : []),
    ...inputArgs,
    ...extraArgs,
@@ -14260,7 +14893,7 @@ index 93c09b2ccec62f715af66160b346e884fe6d3302..2576eb0affeadd05e924a787973f794e
  ];
  
  const buildCodeBuddyArgs = ({
-@@ -421,7 +434,9 @@ const buildSpawnArgs = (params: BuildSpawnArgsParams): string[] => {
+@@ -421,7 +447,9 @@ const buildSpawnArgs = (params: BuildSpawnArgsParams): string[] => {
  };
  
  const killProcessTree = (proc: ChildProcess, signal: NodeJS.Signals, detached: boolean): void => {
@@ -14271,7 +14904,7 @@ index 93c09b2ccec62f715af66160b346e884fe6d3302..2576eb0affeadd05e924a787973f794e
  
    // On Windows the spawn `detached` flag has different semantics; fall back
    // to a direct signal. Tree-kill via `taskkill` is what the desktop
-@@ -468,6 +483,35 @@ const killProcessTree = (proc: ChildProcess, signal: NodeJS.Signals, detached: b
+@@ -468,6 +496,35 @@ const killProcessTree = (proc: ChildProcess, signal: NodeJS.Signals, detached: b
   * failed image fetch surfaces before the child starts.
   */
  export const spawnAgent = async (options: SpawnAgentOptions): Promise<SpawnAgentHandle> => {
@@ -14307,7 +14940,7 @@ index 93c09b2ccec62f715af66160b346e884fe6d3302..2576eb0affeadd05e924a787973f794e
    if (options.agentType === 'trae') return spawnTraeAcpAgent(options);
  
    const command = resolveHeterogeneousAgentCommand(options.agentType, options.command);
-@@ -494,7 +538,7 @@ export const spawnAgent = async (options: SpawnAgentOptions): Promise<SpawnAgent
+@@ -494,7 +551,7 @@ export const spawnAgent = async (options: SpawnAgentOptions): Promise<SpawnAgent
    // caller's env, not the inherited one: a standalone run nested inside some
    // other conversation is not answering it.
    const lobeHubCli =
@@ -14316,7 +14949,7 @@ index 93c09b2ccec62f715af66160b346e884fe6d3302..2576eb0affeadd05e924a787973f794e
        ? await prepareClaudeCodeLobeHubCli(options.prompt, options.extraArgs, {
            resumed: Boolean(options.resumeSessionId),
            version: options.commandVersion,
-@@ -506,11 +550,6 @@ export const spawnAgent = async (options: SpawnAgentOptions): Promise<SpawnAgent
+@@ -506,11 +563,6 @@ export const spawnAgent = async (options: SpawnAgentOptions): Promise<SpawnAgent
      options.inputOptions,
    );
    const inputPlan = { ...promptPlan, args: [...lobeHubCli.args, ...promptPlan.args] };
@@ -14328,7 +14961,16 @@ index 93c09b2ccec62f715af66160b346e884fe6d3302..2576eb0affeadd05e924a787973f794e
    // Codex builds each shell command's env from `[shell_environment_policy]`,
    // not from its own process env, so a user's `inherit = "core"` strips the
    // run context `lh` needs. Forward it as `shell_environment_policy.set.*`
-@@ -546,6 +585,7 @@ const spawnCliAgent = async (
+@@ -537,6 +589,8 @@ const spawnCliAgent = async (
+   codexJwtFile: CodexJwtFile | undefined,
+ ): Promise<SpawnAgentHandle> => {
+   const liveInput = options.agentType === 'claude-code' && options.liveInput === true;
++  const deferPrompt =
++    options.agentType === 'claude-code' && options.deferPrompt === true && !liveInput;
+   const args = buildSpawnArgs({
+     agentType: options.agentType,
+     configArgs:
+@@ -546,6 +600,7 @@ const spawnCliAgent = async (
      extraArgs: options.extraArgs ?? [],
      includePartialMessages: options.includePartialMessages ?? false,
      inputArgs: inputPlan.args,
@@ -14336,7 +14978,7 @@ index 93c09b2ccec62f715af66160b346e884fe6d3302..2576eb0affeadd05e924a787973f794e
      liveInput,
      resumeSessionId: options.resumeSessionId,
    });
-@@ -570,7 +610,7 @@ const spawnCliAgent = async (
+@@ -570,7 +625,7 @@ const spawnCliAgent = async (
          })
        : undefined;
  
@@ -14345,6 +14987,65 @@ index 93c09b2ccec62f715af66160b346e884fe6d3302..2576eb0affeadd05e924a787973f794e
    const detached = platform() !== 'win32' && (options.detached ?? true);
    const startedAt = Date.now();
    const proc = spawnManaged(cliSpawnPlan.command, cliSpawnPlan.args, {
+@@ -643,8 +698,12 @@ const spawnCliAgent = async (
+   }
+ 
+   const live = liveInput && proc.stdin ? new ClaudeCodeLiveInput(proc.stdin) : undefined;
++  let promptSubmitted = false;
+   if (live) {
+     live.send(inputPlan.stdin);
++  } else if (deferPrompt) {
++    // A process that dies while idle must not surface as an unhandled EPIPE.
++    proc.stdin?.on('error', () => {});
+   } else if (proc.stdin) {
+     proc.stdin.write(inputPlan.stdin, () => {
+       proc.stdin?.end();
+@@ -780,6 +839,24 @@ const spawnCliAgent = async (
+       return pipeline.sessionId;
+     },
+     stderr,
++    ...(deferPrompt && {
++      submitPrompt: async (prompt: AgentPromptInput) => {
++        const stdin = proc.stdin;
++        if (promptSubmitted || !stdin?.writable || proc.exitCode !== null) return false;
++        promptSubmitted = true;
++        const plan = await buildAgentInput('claude-code', prompt, options.inputOptions);
++        if (!stdin.writable || proc.exitCode !== null) return false;
++        // From here the CLI may have read the prompt, so a failed write is an
++        // error rather than `false`: the caller must not send the turn again.
++        return new Promise<boolean>((resolve, reject) => {
++          stdin.write(plan.stdin, (error) => {
++            stdin.end();
++            if (error) reject(error);
++            else resolve(true);
++          });
++        });
++      },
++    }),
+   };
+ };
+ 
+diff --git a/packages/heterogeneous-agents/warm2.tmp.mts b/packages/heterogeneous-agents/warm2.tmp.mts
+new file mode 100644
+index 0000000000000000000000000000000000000000..dc74482426db8528f56a98605b09803968aa6619
+--- /dev/null
++++ b/packages/heterogeneous-agents/warm2.tmp.mts
+@@ -0,0 +1,15 @@
++import { spawn } from 'node:child_process';
++import { readFileSync } from 'node:fs';
++import { LobeBuiltinMcpServer } from './src/builtinMcp/LobeBuiltinMcpServer';
++const delayMs = Number(process.argv[2] ?? 0);
++let called = 0;
++const tools = JSON.parse(readFileSync('C:/Users/wz2yu/AppData/Local/Temp/claude/c1f25559964631c8/71286f17-f51f-4804-8ad1-2d6dbcb94619/scratchpad/tools.json', 'utf8')).map((t: any) => ({ description: t.description, inputSchema: t.inputSchema, name: t.name, handler: async () => { called++; console.log(Date.now() - t0, 'TOOL CALLED', t.name); return { content: [{ type: 'text', text: '42' }] }; } }));
++const calc = tools.find((t: any) => /calculat/i.test(t.name)) ?? tools[0];
++const server = new LobeBuiltinMcpServer(); await server.start();
++server.registerOperation('warm', undefined, { tools, onInvalidTool: () => {} });
++let t0 = Date.now();
++const p = spawn(process.env.CLAUDE_BIN!, ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--setting-sources', '', '--strict-mcp-config', '--mcp-config', JSON.stringify({ mcpServers: { lobe_cc: { type: 'http', url: server.urlForOperation('warm') } } }), '--model', 'haiku', '--permission-mode', 'bypassPermissions'], { stdio: ['pipe', 'pipe', 'ignore'], env: { ...process.env, MCP_CONNECTION_NONBLOCKING: 'false', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1', DISABLE_AUTOUPDATER: '1' } });
++setTimeout(() => { console.log(Date.now() - t0, 'stdin written; asking for tool', calc.name); p.stdin.write(JSON.stringify({ type: 'user', message: { role: 'user', content: [{ type: 'text', text: 'Call the MCP tool named mcp__lobe_cc__' + calc.name + ' once with any valid arguments, then reply with just: done' }] } }) + '\n'); p.stdin.end(); }, delayMs);
++let buf = '';
++p.stdout.on('data', (d) => { buf += d; });
++p.on('exit', async (c) => { for (const l of buf.split('\n')) { try { const e = JSON.parse(l); if (e.type === 'result') console.log('result:', e.subtype, String(e.result).slice(0, 80)); } catch {} } console.log(Date.now() - t0, 'exit', c, 'tool calls:', called); await server.stop(); process.exit(0); });
 diff --git a/packages/locales/src/default/chat.ts b/packages/locales/src/default/chat.ts
 index 758cfb9627b381c593a8bb0902e6ccb29a4a9fde..b0314457f247b0c8eb3dc9f7cb32c59d90550d2e 100644
 --- a/packages/locales/src/default/chat.ts
