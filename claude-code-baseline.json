@@ -5,7 +5,7 @@
   "productionQqPatch": "18187-8d48bcdbd746aa036f0fde9f1ba934cc8ac26a14",
   "localQqBaseline": "edfe0138f7abf04aafef2b26d517aaa3e4850228",
   "sourceRevision": "rebased-2026-11-11 onto upstream 2895043d (worker long-poll, CLI prewarm, provider settings entry)",
-  "patchSha256": "a5c84472ce7e06685e7ee5b7e50a994f7b36612cf039ac94e41356feed16eac5",
+  "patchSha256": "71b36a3d37609da58b9b84b348789d016f9d21025e8ba50e528afd39dcd29326",
   "officialClaudeCode": "2.1.301",
   "featureFlag": "CLAUDE_CODE_SERVER_ENABLED",
   "defaultEnabled": false,

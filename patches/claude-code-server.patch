@@ -15988,8 +15988,32 @@ index 47b7b03169eef0ca5eabaa3f207c27ef8b3f1d7d..a4c0d5a9d9d4481bc42d92ac164f86ea
      isGroupContext,
      isHeterogeneousAgent,
      isModelDisabled,
+diff --git a/src/features/LobeBench/BenchmarkStandardFields.tsx b/src/features/LobeBench/BenchmarkStandardFields.tsx
+index e07476164fce50f07a3faf80965ddb3a9a54ac0a..469381b4887c74c74559efc5bbe9d51ef65fd2fc 100644
+--- a/src/features/LobeBench/BenchmarkStandardFields.tsx
++++ b/src/features/LobeBench/BenchmarkStandardFields.tsx
+@@ -48,6 +48,7 @@ const BenchmarkStandardFields = memo<BenchmarkStandardFieldsProps>(
+           <Text fontSize={13}>{t('lobeBench.benchmark.create.judge')}</Text>
+           <ModelSelect
+             disabled={disabled}
++            includeAssistantBackends={false}
+             placeholder={t('lobeBench.benchmark.create.judge.placeholder')}
+             value={value.judge}
+             onChange={(judge) => onChange({ ...value, judge })}
+diff --git a/src/features/LobeBench/ContenderForm.tsx b/src/features/LobeBench/ContenderForm.tsx
+index aedca0f67cce5076b478dfee40d2a6956626d298..d4e364c05fd29414b76c08bdd42fa5bba5b214ab 100644
+--- a/src/features/LobeBench/ContenderForm.tsx
++++ b/src/features/LobeBench/ContenderForm.tsx
+@@ -107,6 +107,7 @@ const ContenderForm = memo<ContenderFormProps>(({ initial, onSubmit, submitLabel
+       <Flexbox gap={6}>
+         <Text weight={500}>{t('lobeBench.contender.model')}</Text>
+         <ModelSelect
++          includeAssistantBackends={false}
+           placeholder={t('lobeBench.contender.model.placeholder')}
+           requiredAbilities={['functionCall']}
+           value={target}
 diff --git a/src/features/ModelSelect/index.tsx b/src/features/ModelSelect/index.tsx
-index 71c2f5fdda13bc628cde6c8c7128509d9ff908c3..91047d0c13208c0ee442a36b8bec8d66bf0afee1 100644
+index 71c2f5fdda13bc628cde6c8c7128509d9ff908c3..ad4667a127a643f079cd687dcd57f349b6a85cac 100644
 --- a/src/features/ModelSelect/index.tsx
 +++ b/src/features/ModelSelect/index.tsx
 @@ -17,6 +17,7 @@ import { useTranslation } from 'react-i18next';
@@ -16000,20 +16024,25 @@ index 71c2f5fdda13bc628cde6c8c7128509d9ff908c3..91047d0c13208c0ee442a36b8bec8d66
  import { aiProviderSelectors, useAiInfraStore } from '@/store/aiInfra';
  import { type EnabledProviderWithModels } from '@/types/aiProvider';
  
-@@ -103,6 +104,8 @@ interface ModelSelectProps extends Pick<
+@@ -103,6 +104,13 @@ interface ModelSelectProps extends Pick<
    | 'variant'
  > {
    defaultValue?: { model: string; provider?: string };
-+  /** Ordinary assistant chat only. Service, embedding and voice model pickers leave this off. */
++  /**
++   * List execution backends such as the server Claude Code worker next to API
++   * providers. On by default, since every agent run (chat, task, goal, group
++   * member) can execute on one. Pickers whose model is called directly through
++   * the provider API, such as service models or benchmarks, turn it off.
++   */
 +  includeAssistantBackends?: boolean;
    initialWidth?: boolean;
    modelType?: 'asr' | 'chat' | 'embedding';
    onChange?: (props: { model: string; provider: string }) => void;
-@@ -133,19 +136,24 @@ const ModelSelect = memo<ModelSelectProps>(
+@@ -133,19 +141,24 @@ const ModelSelect = memo<ModelSelectProps>(
      style,
      variant,
      initialWidth = false,
-+    includeAssistantBackends = false,
++    includeAssistantBackends = true,
      popupWidth,
      modelType = 'chat',
      providerIds,
@@ -16079,6 +16108,18 @@ index c8d28f2f6e1e581aae3a875482d12e64936c86df..27e219eacc9aac257d6fc5df3a60fefc
  
    const findBuiltin = (id: string, providerId?: string) =>
      builtinAiModelList.find(
+diff --git a/src/features/ServiceModel/ChatAssistForm.tsx b/src/features/ServiceModel/ChatAssistForm.tsx
+index 74840df316c68728221fb524d4200f2dc46d99f0..5925af956fb9e438dd1dc27d831185ac22a9e18f 100644
+--- a/src/features/ServiceModel/ChatAssistForm.tsx
++++ b/src/features/ServiceModel/ChatAssistForm.tsx
+@@ -51,6 +51,7 @@ const ChatAssistControl = memo<ChatAssistControlProps>(({ itemKey }) => {
+       )}
+       {!featureDisabled && (
+         <ModelSelect
++          includeAssistantBackends={false}
+           showAbility={false}
+           style={{ minWidth: 0, width: '100%' }}
+           value={value}
 diff --git a/src/features/Settings/provider/detail/claudeCode/index.tsx b/src/features/Settings/provider/detail/claudeCode/index.tsx
 new file mode 100644
 index 0000000000000000000000000000000000000000..d5017470af45d9ad6dbf8cf1da48f24146c8c566
@@ -16586,6 +16627,26 @@ index 3c9817cd9b84df9a71f1d54a6fb9756dfb710ee3..927d009b176ee26ef6a40ba35e888818
  // ---- message ------------------------------------------------------------
  export interface MessageListQueryContext {
    agentId?: string | null;
+diff --git a/src/routes/(main)/agent/profile/features/ProfileEditor/HeterogeneousAgentStatusCard.tsx b/src/routes/(main)/agent/profile/features/ProfileEditor/HeterogeneousAgentStatusCard.tsx
+index 685ebab5d6fe096ba8b2b99fedc3fa6e5c96390c..8df8665f70a977aac78706adac69e6a06a84682c 100644
+--- a/src/routes/(main)/agent/profile/features/ProfileEditor/HeterogeneousAgentStatusCard.tsx
++++ b/src/routes/(main)/agent/profile/features/ProfileEditor/HeterogeneousAgentStatusCard.tsx
+@@ -849,6 +849,7 @@ const CliHeterogeneousAgentStatusCard = memo<HeterogeneousAgentStatusCardProps>(
+             <div className={styles.detailRow}>
+               <Text className={styles.detailLabel}>{t('heterogeneousStatus.apiMode.model')}</Text>
+               <ModelSelect
++                includeAssistantBackends={false}
+                 initialWidth
+                 disabled={!canEdit || !apiModeAvailable}
+                 placeholder={t('heterogeneousStatus.apiMode.modelPlaceholder')}
+@@ -891,6 +892,7 @@ const CliHeterogeneousAgentStatusCard = memo<HeterogeneousAgentStatusCardProps>(
+               </Text>
+               <Flexbox gap={4} style={{ flex: 1, minWidth: 0 }}>
+                 <ModelSelect
++                  includeAssistantBackends={false}
+                   allowClear
+                   initialWidth
+                   disabled={!canEdit}
 diff --git a/src/routes/(main)/agent/profile/features/ProfileEditor/WorkspaceAgentModelPolicy.tsx b/src/routes/(main)/agent/profile/features/ProfileEditor/WorkspaceAgentModelPolicy.tsx
 index 3becd8f4fafac8042ee6c72889f2ee466d6455e2..c9787b7f35a03885ad9969067435daa4d292780c 100644
 --- a/src/routes/(main)/agent/profile/features/ProfileEditor/WorkspaceAgentModelPolicy.tsx
