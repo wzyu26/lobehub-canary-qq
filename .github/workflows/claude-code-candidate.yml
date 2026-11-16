@@ -123,7 +123,7 @@ jobs:
           (cd packages/database && pnpm exec vitest run src/models/__tests__/documentAiComment.test.ts)
       - name: Preserve QQ behavior
         working-directory: source/packages/chat-adapter-qq
-        run: pnpm exec vitest run --config vitest.config.mts src/adapter.test.ts src/passive-reply.test.ts
+        run: pnpm exec vitest run --config vitest.config.mts src/adapter.test.ts src/adapter.mention.test.ts src/adapter.passive.test.ts src/passive.test.ts
 
   image:
     needs: [decide, validate]

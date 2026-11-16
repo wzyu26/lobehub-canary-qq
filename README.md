@@ -2,7 +2,7 @@
 
 Tracks `lobehub/lobehub:canary` source and applies the reviewed code and regression-test hunks from [PR #18187](https://github.com/lobehub/lobehub/pull/18187), pinned to PR head `8d48bcdbd746aa036f0fde9f1ba934cc8ac26a14`.
 
-Also includes a local QQ passive-reply fix: adapter replies carry the incoming `msg_id` and increment `msg_seq`, so group replies are not rejected as unauthorized proactive messages (`40034105`). Context is isolated per bot/thread, bounded, and expires after five minutes. The build verifies the new regression suite fails before this patch and passes afterward. This covers the in-process Chat SDK reply path used by this deployment; separate asynchronous callback or proactive tool-send paths are not covered by this patch.
+The QQ mention and passive-reply fixes this repo used to carry landed upstream in lobehub/lobehub#22921 (2026-11-16); `scripts/prepare.py` now only checks that they are still there and runs upstream's QQ adapter tests as a build gate.
 
 - Checks upstream every six hours (00:23, 06:23, 12:23, 18:23 UTC); unchanged commits are skipped.
 - Builds `linux/amd64` using the upstream Dockerfile, with the QQ adapter test suite as a required build step.
@@ -16,7 +16,7 @@ The image is built from public upstream source. Upstream licensing continues to 
 
 ## Claude Code build
 
-The scheduled build is now `claude-code-candidate.yml`: it applies the QQ fixes and `patches/claude-code-server.patch` to the latest upstream `canary`, places the Claude Code migration after upstream's newest one, runs the checks, builds the app, worker and admin images, and only then moves the `claude-code`, `claude-code-worker` and `claude-code-admin` tags together. If any step fails, the tags stay on the last good build. `canary` is no longer updated on a schedule.
+The scheduled build is now `claude-code-candidate.yml`: it applies `patches/claude-code-server.patch` to the latest upstream `canary`, places the Claude Code migration after upstream's newest one, runs the checks, builds the app, worker and admin images, and only then moves the `claude-code`, `claude-code-worker` and `claude-code-admin` tags together. If any step fails, the tags stay on the last good build. `canary` is no longer updated on a schedule.
 
 The migration takes the millisecond after upstream's newest timestamp, never the build time, because drizzle skips any migration older than the newest one the database has recorded.
 
