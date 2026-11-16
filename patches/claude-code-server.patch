@@ -9230,16 +9230,16 @@ index 0000000000..835595530c
 +};
 diff --git a/apps/server/src/services/claudeCode/prepareContext.test.ts b/apps/server/src/services/claudeCode/prepareContext.test.ts
 new file mode 100644
-index 0000000000..8e77b3dcbb
+index 0000000000..03e89ab59d
 --- /dev/null
 +++ b/apps/server/src/services/claudeCode/prepareContext.test.ts
-@@ -0,0 +1,276 @@
+@@ -0,0 +1,274 @@
 +import type { AgentState, ContextBuildOutput } from '@lobechat/agent-runtime';
 +import { CanvasManifest } from '@lobechat/builtin-tool-canvas';
 +import { ToolNameResolver } from '@lobechat/context-engine';
 +import { describe, expect, it } from 'vitest';
 +
-+import { prepareClaudeCodeContext } from './prepareContext';
++import { MAX_EARLIER_IMAGES, prepareClaudeCodeContext } from './prepareContext';
 +
 +const makeState = (): AgentState =>
 +  ({
@@ -9414,19 +9414,17 @@ index 0000000000..8e77b3dcbb
 +    expect(() => prepare(makeState(), context)).toThrow('prepared attachment type: video_url');
 +  });
 +
-+  it('re-attaches only the most recent earlier images and notes the older ones', () => {
++  it('re-attaches all earlier images up to the cap and notes only older ones', () => {
 +    const context = makeContext();
-+    const image = (name: string) => ({
++    const image = (index: number) => ({
 +      type: 'image_url',
-+      image_url: { url: `https://x/${name}` },
++      image_url: { url: `https://x/${index}.png` },
 +    });
-+    context.messages[2] = {
-+      content: [image('a.png'), image('b.png'), image('c.png')],
-+      role: 'user',
-+    };
-+    context.messages[3] = { content: [image('d.png'), image('e.png')], role: 'user' };
++    const earlier = Array.from({ length: MAX_EARLIER_IMAGES + 2 }, (_, index) => image(index));
++    context.messages[2] = { content: earlier.slice(0, 3), role: 'user' };
++    context.messages[3] = { content: earlier.slice(3), role: 'user' };
 +    context.messages[4] = {
-+      content: [{ type: 'text', text: 'is that right?' }, image('f.png'), image('g.png')],
++      content: [{ type: 'text', text: 'is that right?' }, image(100), image(101)],
 +      role: 'user',
 +    };
 +    const prompt = prepare(makeState(), context).request.prompt as Exclude<
@@ -9437,13 +9435,13 @@ index 0000000000..8e77b3dcbb
 +      block.type === 'image' && block.source.type === 'url' ? [block.source.url] : [],
 +    );
 +    expect(attached).toEqual(
-+      ['b.png', 'c.png', 'd.png', 'e.png', 'f.png', 'g.png'].map((name) => `https://x/${name}`),
++      [...earlier.slice(2), image(100), image(101)].map((part) => part.image_url.url),
 +    );
 +    expect(
 +      prompt.filter(
 +        (block) => block.type === 'text' && block.text.includes('sent in an earlier message'),
 +      ),
-+    ).toHaveLength(1);
++    ).toHaveLength(2);
 +  });
 +
 +  it('offers only server tools and explicitly marks client tools unavailable', () => {
@@ -9512,10 +9510,10 @@ index 0000000000..8e77b3dcbb
 +});
 diff --git a/apps/server/src/services/claudeCode/prepareContext.ts b/apps/server/src/services/claudeCode/prepareContext.ts
 new file mode 100644
-index 0000000000..ebf6c413cd
+index 0000000000..fd6581aec8
 --- /dev/null
 +++ b/apps/server/src/services/claudeCode/prepareContext.ts
-@@ -0,0 +1,181 @@
+@@ -0,0 +1,182 @@
 +import type { AgentState, ContextBuildOutput } from '@lobechat/agent-runtime';
 +import { ToolNameResolver } from '@lobechat/context-engine';
 +import type {
@@ -9539,11 +9537,12 @@ index 0000000000..ebf6c413cd
 +
 +/**
 + * Every turn starts a fresh CLI session from the whole history, so earlier
-+ * images have to be sent again for the model to still see them. Only the most
-+ * recent ones are re-attached to bound tokens and fetch time per turn; older
-+ * images become a short note.
++ * images are sent again, like an API client resends its history. The bytes are
++ * identical every turn, so they stay inside the cached prompt prefix. The cap
++ * only guards the API's request size (32 MB) and image count limits in very
++ * long image-heavy topics; images beyond it become a short note.
 + */
-+export const MAX_EARLIER_IMAGES = 4;
++export const MAX_EARLIER_IMAGES = 20;
 +
 +const EARLIER_IMAGES_GUIDANCE =
 +  'Images from earlier messages are attached again inline where they were sent, and you can see them directly. Do not open saved image files with tools to look at them again.';
@@ -9655,7 +9654,7 @@ index 0000000000..ebf6c413cd
 +    throw new Error('Prepared context has no user input');
 +  }
 +  const currentUserIndex = conversation.findLastIndex((message) => message.role === 'user');
-+  // The current message keeps all its images; earlier ones share a budget, newest first.
++  // The current message keeps all its images; earlier ones share the budget, newest first.
 +  let earlierImageBudget = MAX_EARLIER_IMAGES;
 +  const keepImages = conversation.map(() => 0);
 +  for (let index = conversation.length - 1; index >= 0; index -= 1) {
