@@ -1,0 +1,36 @@
+name: Check the Claude token
+
+# Manual check that CLAUDE_CODE_OAUTH_TOKEN works for auto-rebase.yml.
+# Read-only: it changes nothing and never touches the build or the image tags.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: anthropics/claude-code-action@v1
+        id: claude
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ github.token }}
+          prompt: |
+            Read docs/rebase-patches.md and answer with ok=true and a one-sentence
+            summary of what it describes. Do not change any file.
+          claude_args: |
+            --model opus
+            --max-turns 5
+            --json-schema '{"type":"object","properties":{"ok":{"type":"boolean"},"summary":{"type":"string"}},"required":["ok","summary"]}'
+      - env:
+          RESULT: ${{ steps.claude.outputs.structured_output }}
+        run: |
+          echo "$RESULT"
+          [[ "$(jq -r .ok <<<"$RESULT")" == true ]]
