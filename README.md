@@ -33,3 +33,11 @@ Builds are automatic; production deployment remains an explicit update operation
 `patches/ai-comments.patch` turns the page editor's selection "Comment" action into "ask the AI about this passage" on personal pages (pages outside a Workspace, where upstream's human comments cannot exist). The AI reads the selection plus its surrounding text and answers in a comment card beside it; follow-ups continue the same thread. Threads are private to their author and stored in their own table, `document_ai_comments` (`patches/ai-comments-migration.sql`), which `scripts/prepare-ai-comments.py` places after the Claude Code migration. The answer uses the same model as the page copilot ("Ask Lobe AI").
 
 A run of the workflow on a branch other than `main` builds and checks run-specific images but never moves the `claude-code*` tags.
+
+## Automatic patch realignment
+
+When the Claude Code build fails, `auto-rebase.yml` runs. It first checks whether the patches still apply to the latest upstream canary (`scripts/check-patches-apply.sh`); a failure for any other reason (a test, the image build) is left alone. If they conflict, Claude Code realigns them in Actions by following `docs/rebase-patches.md`, the workflow verifies that only patch files, the baseline and prepare scripts changed and that the result applies cleanly, then pushes and starts the build again. Each upstream commit is attempted once; every attempt leaves an issue labelled `auto-rebase` (closed when pushed, open when a person is needed). If Claude cannot be reached (sign-in, subscription access, usage limit) an `auto-rebase-blocked` issue is opened and the commit is retried on the next failed build.
+
+- Needs the repository secret `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`).
+- Repository variable `AUTO_REBASE_TARGET`: `main` (default) lands the fix on main, so a green build moves the tags and the nightly server update deploys it unattended. `branch` pushes `auto-rebase/<commit>` instead and builds there without moving tags.
+- Run the workflow by hand with `force` to retry a commit.

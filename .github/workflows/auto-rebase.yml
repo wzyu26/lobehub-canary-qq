@@ -1,0 +1,271 @@
+name: Auto-rebase patches when upstream conflicts
+
+# When the Claude Code build fails, check whether the patches still apply to the
+# latest upstream canary. Only if they don't, let Claude Code realign them
+# (docs/rebase-patches.md), verify the result here, push it and rerun the build.
+# The build's own tests still decide whether the image tags move.
+
+on:
+  workflow_run:
+    workflows: ['Follow upstream with the Claude Code build']
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Try again even if this upstream commit was already attempted'
+        type: boolean
+        default: false
+
+concurrency:
+  group: auto-rebase
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  detect:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'failure'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      issues: read
+    outputs:
+      needed: ${{ steps.check.outputs.needed }}
+      sha: ${{ steps.check.outputs.sha }}
+      short: ${{ steps.check.outputs.short }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FORCE: ${{ inputs.force || false }}
+        run: |
+          set -euo pipefail
+          sha=$(git ls-remote https://github.com/lobehub/lobehub.git refs/heads/canary | cut -f1)
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]]
+          short=${sha:0:12}
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "short=$short" >> "$GITHUB_OUTPUT"
+          git clone -q --filter=blob:none --no-checkout https://github.com/lobehub/lobehub.git "$RUNNER_TEMP/upstream"
+          if scripts/check-patches-apply.sh "$RUNNER_TEMP/upstream" "$sha" > "$RUNNER_TEMP/check.log" 2>&1; then
+            echo 'needed=false' >> "$GITHUB_OUTPUT"
+            echo "Patches apply to upstream $short; the failure is not a patch conflict. Nothing to do." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          tail -n 40 "$RUNNER_TEMP/check.log"
+          # One attempt per upstream commit: every finished attempt leaves an issue
+          # labelled auto-rebase with the commit in its title.
+          seen=$(gh issue list --repo "$GITHUB_REPOSITORY" --label auto-rebase --state all \
+            --search "$short in:title" --json number --jq length 2>/dev/null || echo 0)
+          if [[ "$FORCE" != true && "$seen" != 0 ]]; then
+            echo 'needed=false' >> "$GITHUB_OUTPUT"
+            echo "Upstream $short was already attempted (see issues labelled auto-rebase). Run this workflow with force to retry." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo 'needed=true' >> "$GITHUB_OUTPUT"
+
+  fix:
+    needs: detect
+    if: needs.detect.outputs.needed == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    # Read-only: Claude edits files in the runner; the land job checks and pushes them.
+    permissions:
+      contents: read
+    outputs:
+      outcome: ${{ steps.collect.outputs.outcome }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Clone upstream next to the patches
+        env:
+          SHA: ${{ needs.detect.outputs.sha }}
+        run: |
+          set -euo pipefail
+          git clone -q --filter=blob:none https://github.com/lobehub/lobehub.git upstream
+          git -C upstream fetch -q origin "$SHA" "$(jq -r .upstream claude-code-baseline.json)"
+          git -C upstream config user.name rebase
+          git -C upstream config user.email rebase@localhost
+          printf 'upstream/\nconflict.log\n' >> .git/info/exclude
+          scripts/check-patches-apply.sh upstream "$SHA" > conflict.log 2>&1 || true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm install --global corepack@latest && corepack enable
+      - uses: anthropics/claude-code-action@v1
+        id: claude
+        continue-on-error: true
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ github.token }}
+          # The build reruns this workflow after the bot's own pushes.
+          allowed_bots: 'github-actions[bot]'
+          prompt: |
+            The patches in this repository no longer apply to upstream lobehub canary
+            commit ${{ needs.detect.outputs.sha }}. Realign them by following
+            docs/rebase-patches.md exactly.
+
+            - This repository is the current directory ($CFG). A lobehub clone with
+              history is in ./upstream ($SRC); NEW is the commit above.
+            - ./conflict.log is the failing output of scripts/check-patches-apply.sh.
+            - Change only patches/*.patch, claude-code-baseline.json and
+              scripts/prepare*.py in this repository. Do not commit or push here;
+              commits inside ./upstream are fine.
+            - Before finishing, run the clean check from the doc
+              (scripts/check-patches-apply.sh upstream NEW must exit 0), then
+              pnpm install, pnpm run type-check and the vitest files near the
+              conflicts in that tree, and fix what your resolution broke.
+            - If you cannot get a correct result, leave the files as they were
+              (git checkout -- .) and report gave_up with what blocks you.
+
+            Answer with status "fixed" or "gave_up" and a short summary of which
+            conflicts you resolved and how (plain English, a few lines).
+          claude_args: |
+            --model opus
+            --max-turns 400
+            --permission-mode auto
+            --json-schema '{"type":"object","properties":{"status":{"type":"string","enum":["fixed","gave_up"]},"summary":{"type":"string"}},"required":["status","summary"]}'
+      - id: collect
+        if: always()
+        env:
+          RESULT: ${{ steps.claude.outputs.structured_output }}
+          EXECUTION: ${{ steps.claude.outputs.execution_file }}
+        run: |
+          set -uo pipefail
+          out="$RUNNER_TEMP/out"; mkdir -p "$out"
+          git add -N . && git diff --binary > "$out/fix.diff"
+          cp conflict.log "$out/" 2>/dev/null || true
+          status=$(jq -r '.status // empty' <<<"${RESULT:-}" 2>/dev/null)
+          jq -r '.summary // empty' <<<"${RESULT:-}" > "$out/summary.md" 2>/dev/null || true
+          if [[ "$status" == fixed && -s "$out/fix.diff" ]]; then
+            outcome=fixed
+          elif [[ "$status" == gave_up ]]; then
+            outcome=gave_up
+          else
+            # No answer at all: tell an account/quota problem apart from a crash, so an
+            # unavailable subscription doesn't use up this commit's one attempt.
+            tail=''
+            [[ -n "${EXECUTION:-}" && -f "$EXECUTION" ]] && tail=$(jq -r '[.[] | select(.type=="result")] | last | .result // ""' "$EXECUTION" 2>/dev/null)
+            echo "$tail" > "$out/summary.md"
+            if [[ -z "$tail" ]] || grep -qiE '401|403|oauth|subscription|organization|authentic|rate.?limit|usage limit|overloaded|credit' <<<"$tail"; then
+              outcome=unavailable
+            else
+              outcome=error
+            fi
+          fi
+          echo "outcome=$outcome" >> "$GITHUB_OUTPUT"
+          echo "Outcome: $outcome" >> "$GITHUB_STEP_SUMMARY"
+          cat "$out/summary.md" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: auto-rebase
+          path: ${{ runner.temp }}/out/
+
+  land:
+    needs: [detect, fix]
+    if: always() && needs.detect.outputs.needed == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      issues: write
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SHA: ${{ needs.detect.outputs.sha }}
+      SHORT: ${{ needs.detect.outputs.short }}
+      OUTCOME: ${{ needs.fix.outputs.outcome || 'error' }}
+      # Repository variable AUTO_REBASE_TARGET: "main" (default) lands the fix on main,
+      # so a green build moves the tags and the nightly server update deploys it.
+      # "branch" pushes auto-rebase/<commit> instead; the build there never moves tags.
+      TARGET: ${{ vars.AUTO_REBASE_TARGET || 'main' }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: auto-rebase
+          path: ${{ runner.temp }}/out
+      - id: land
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/out"
+          result=$OUTCOME
+          if [[ "$result" == fixed ]]; then
+            git apply --binary "$out/fix.diff"
+            bad=$(git status --porcelain | awk '{print $2}' | grep -vE '^(patches/[^/]+\.patch|claude-code-baseline\.json|scripts/prepare[^/]*\.py)$' || true)
+            want=$(jq -r .patchSha256 claude-code-baseline.json)
+            have=$(sha256sum patches/claude-code-server.patch | cut -d' ' -f1)
+            git clone -q --filter=blob:none --no-checkout https://github.com/lobehub/lobehub.git "$RUNNER_TEMP/upstream"
+            if [[ -n "$bad" ]]; then
+              echo "Changed files outside the allowed set: $bad" | tee -a "$out/summary.md"; result=rejected
+            elif [[ "$want" != "$have" ]]; then
+              echo 'patchSha256 does not match the new patch.' | tee -a "$out/summary.md"; result=rejected
+            elif ! scripts/check-patches-apply.sh "$RUNNER_TEMP/upstream" "$SHA" > "$RUNNER_TEMP/verify.log" 2>&1; then
+              tail -n 40 "$RUNNER_TEMP/verify.log"
+              echo 'The new patches do not apply cleanly to upstream.' | tee -a "$out/summary.md"; result=rejected
+            fi
+          fi
+          if [[ "$result" == fixed ]]; then
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add -A
+            { echo "build: auto-rebase patches onto upstream $SHORT"; echo; cat "$out/summary.md"; } | git commit -q -F -
+            if [[ "$TARGET" == branch ]]; then
+              ref="auto-rebase/$SHORT"
+              git push -f origin "HEAD:refs/heads/$ref"
+            else
+              ref=main
+              git pull -q --rebase origin main
+              git push origin HEAD:main
+            fi
+            # Pushes made with this token start no workflows, so start the build by hand.
+            gh workflow run claude-code-candidate.yml --ref "$ref"
+            echo "ref=$ref" >> "$GITHUB_OUTPUT"
+            echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          fi
+          echo "result=$result" >> "$GITHUB_OUTPUT"
+      - name: Report
+        if: always()
+        env:
+          RESULT: ${{ steps.land.outputs.result || 'error' }}
+          REF: ${{ steps.land.outputs.ref }}
+          COMMIT: ${{ steps.land.outputs.commit }}
+        run: |
+          set -euo pipefail
+          gh label create auto-rebase --color 5319e7 --description 'Automatic patch realignment attempts' 2>/dev/null || true
+          gh label create auto-rebase-blocked --color b60205 --description 'Auto-rebase could not reach Claude' 2>/dev/null || true
+          summary=$(cat "$RUNNER_TEMP/out/summary.md" 2>/dev/null || true)
+          upstream="https://github.com/lobehub/lobehub/commit/$SHA"
+          case "$RESULT" in
+            fixed)
+              if [[ "$REF" == main ]]; then
+                next='Pushed to main and started the build. If it passes, the claude-code tags move and the nightly server update deploys it; if it fails, the tags stay where they are.'
+              else
+                next="Pushed to branch \`$REF\` and started a build there (it never moves the tags). To ship it, fast-forward main to that branch."
+              fi
+              body=$(printf 'Upstream: %s\nCommit: %s\nRun: %s\n\n%s\n\n%s\n' "$upstream" "$COMMIT" "$RUN_URL" "$next" "$summary")
+              url=$(gh issue create --title "Auto-rebase onto upstream $SHORT: pushed" --label auto-rebase --body "$body")
+              # Closed straight away: it is a record and a notification, not a to-do.
+              [[ "$REF" == main ]] && gh issue close "$url" --reason completed
+              ;;
+            unavailable)
+              # Not labelled auto-rebase, so the next failed build tries this commit again.
+              if [[ "$(gh issue list --label auto-rebase-blocked --state open --json number --jq length)" == 0 ]]; then
+                body=$(printf 'Upstream %s conflicts with the patches, but Claude could not run (sign-in, subscription access or usage limit).\nRun: %s\n\nCheck the CLAUDE_CODE_OAUTH_TOKEN secret. The next failed build retries automatically; close this issue once it works.\n\n%s\n' "$SHORT" "$RUN_URL" "$summary")
+                gh issue create --title 'Auto-rebase could not reach Claude' --label auto-rebase-blocked --body "$body"
+              fi
+              ;;
+            *)
+              body=$(printf 'Upstream: %s\nRun: %s\nResult: %s\n\nThe patches still conflict with this upstream commit and need a manual realignment (docs/rebase-patches.md). The conflict log and any partial diff are in the run artifact.\n\n%s\n' "$upstream" "$RUN_URL" "$RESULT" "$summary")
+              gh issue create --title "Auto-rebase onto upstream $SHORT: needs a person" --label auto-rebase --body "$body"
+              ;;
+          esac
