@@ -5,7 +5,7 @@
   "productionQqPatch": "18187-8d48bcdbd746aa036f0fde9f1ba934cc8ac26a14",
   "localQqBaseline": "edfe0138f7abf04aafef2b26d517aaa3e4850228",
   "sourceRevision": "rebased-2026-11-16 onto upstream f9bcf152 (QQ fixes now upstream, model picker moved to EngineEditor)",
-  "patchSha256": "24a28d683d0d4f8f779ca8abde9a30bfdddbd59a16fea4683a2d4eb1ba5443ac",
+  "patchSha256": "16adcd684860ccc0d6a09a1722e86f021adec7c8465bb29b9ecd8c351d0b1e91",
   "officialClaudeCode": "2.1.301",
   "featureFlag": "CLAUDE_CODE_SERVER_ENABLED",
   "defaultEnabled": false,
