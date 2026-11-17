@@ -4070,10 +4070,10 @@ index 0000000000..f80f375fcb
 +  });
 +});
 diff --git a/apps/server/src/modules/AgentRuntime/adapters/ServerToolTransport.ts b/apps/server/src/modules/AgentRuntime/adapters/ServerToolTransport.ts
-index 7077e71f58..34d1fe5b3d 100644
+index 5662ae1110..b1c15b78fb 100644
 --- a/apps/server/src/modules/AgentRuntime/adapters/ServerToolTransport.ts
 +++ b/apps/server/src/modules/AgentRuntime/adapters/ServerToolTransport.ts
-@@ -341,7 +341,7 @@ export class ServerToolTransport implements ToolTransport {
+@@ -342,7 +342,7 @@ export class ServerToolTransport implements ToolTransport {
              }),
            {
              isInterrupted: () => isOperationInterrupted(this.ctx),
@@ -5191,7 +5191,7 @@ index 6a4ec2ce47..3b76b8ac58 100644
      if (['done', 'error', 'interrupted', 'abandoned'].includes(operation.status)) return true;
  
 diff --git a/apps/server/src/services/agentRuntime/AgentRuntimeService/operationInitSlots.ts b/apps/server/src/services/agentRuntime/AgentRuntimeService/operationInitSlots.ts
-index 5adee6b70d..c21bd9d322 100644
+index ee9cb588a8..4560451413 100644
 --- a/apps/server/src/services/agentRuntime/AgentRuntimeService/operationInitSlots.ts
 +++ b/apps/server/src/services/agentRuntime/AgentRuntimeService/operationInitSlots.ts
 @@ -1,5 +1,6 @@
@@ -5201,7 +5201,7 @@ index 5adee6b70d..c21bd9d322 100644
  
  import { type OperationCreationParams } from '../types';
  
-@@ -83,6 +84,7 @@ export const buildPreInitState = (
+@@ -84,6 +85,7 @@ export const buildPreInitState = (
      // What the host needs to deliver and retry the run. Hooks are stamped
      // right after creation once the dispatcher has serialized them.
      host: {
@@ -5578,10 +5578,10 @@ index 40a322322a..92cab23324 100644
      request: AgentRunInitRequest;
      state: AgentState;
 diff --git a/apps/server/src/services/aiAgent/pipeline/deferredInit.ts b/apps/server/src/services/aiAgent/pipeline/deferredInit.ts
-index a1ba3d0564..5ec9f8c52b 100644
+index 52c91ca393..3d012dddd7 100644
 --- a/apps/server/src/services/aiAgent/pipeline/deferredInit.ts
 +++ b/apps/server/src/services/aiAgent/pipeline/deferredInit.ts
-@@ -146,9 +146,15 @@ export const runDeferredOperationInit = async (
+@@ -147,9 +147,15 @@ export const runDeferredOperationInit = async (
    deps: DeferredOperationInitDeps,
    {
      operationId,
@@ -5598,7 +5598,7 @@ index a1ba3d0564..5ec9f8c52b 100644
  ): Promise<{ context: AgentRuntimeContext; state: Partial<AgentState> }> => {
    const ctx = await restoreRunContext(deps, state, request);
    ctx.shareGate = await resolveShareGate(deps, state.principal?.actor?.shareVisitor);
-@@ -159,29 +165,31 @@ export const runDeferredOperationInit = async (
+@@ -160,29 +166,31 @@ export const runDeferredOperationInit = async (
      !!request.resumeApprovals?.length ||
      !!request.resumeToolResult;
  
@@ -5654,7 +5654,7 @@ index a1ba3d0564..5ec9f8c52b 100644
    const { discovery, initialContext, prep } = await traceSendStage('operation_init', () =>
      runOperationInit(
 diff --git a/apps/server/src/services/aiAgent/pipeline/execTurn.ts b/apps/server/src/services/aiAgent/pipeline/execTurn.ts
-index f68e0df3c1..d7b859fda8 100644
+index 8821b29290..cbab4b1a38 100644
 --- a/apps/server/src/services/aiAgent/pipeline/execTurn.ts
 +++ b/apps/server/src/services/aiAgent/pipeline/execTurn.ts
 @@ -21,6 +21,10 @@ import type { AgentConfigWithId } from '@/server/services/agent';
@@ -5668,7 +5668,7 @@ index f68e0df3c1..d7b859fda8 100644
  import type { ComposioService } from '@/server/services/composio';
  import { DocumentService } from '@/server/services/document';
  import type { MarketService } from '@/server/services/market';
-@@ -306,6 +310,8 @@ export const execAgentTurn = async (
+@@ -307,6 +311,8 @@ export const execAgentTurn = async (
      userId: deps.userId,
    });
  
@@ -5677,7 +5677,7 @@ index f68e0df3c1..d7b859fda8 100644
    let resumeParentMessage: Awaited<ReturnType<MessageModel['findById']>>;
  
    // `resumeApproval` implies the same "load parent message + skip user
-@@ -480,6 +486,17 @@ export const execAgentTurn = async (
+@@ -481,6 +487,17 @@ export const execAgentTurn = async (
      topicId,
    } = turn;
  
@@ -5695,7 +5695,7 @@ index f68e0df3c1..d7b859fda8 100644
    // Shared context for the extracted execAgent pipeline stages
    // (`pipeline/*`). Built after the turn rows exist so every stage sees the
    // persisted anchors; `agentConfig` stays the same mutable object so stage
-@@ -662,7 +679,7 @@ export const execAgentTurn = async (
+@@ -664,7 +681,7 @@ export const execAgentTurn = async (
      approvalOwnerAssistantId,
      approvedToolEntries,
      attachedFileIds,
@@ -5704,7 +5704,7 @@ index f68e0df3c1..d7b859fda8 100644
      disableSelfFeedbackIntentTool: params.disableSelfFeedbackIntentTool,
      disableTools: params.disableTools,
      ephemeralUserMessage,
-@@ -675,15 +692,15 @@ export const execAgentTurn = async (
+@@ -677,15 +694,15 @@ export const execAgentTurn = async (
      functionTools,
      globalMemoryEnabled,
      hasMentionedAgents,
@@ -5724,7 +5724,7 @@ index f68e0df3c1..d7b859fda8 100644
      resumeApproval,
      resumeApprovalPlugin,
      resumeApprovals,
-@@ -693,7 +710,7 @@ export const execAgentTurn = async (
+@@ -695,7 +712,7 @@ export const execAgentTurn = async (
      runAttachments,
      selectedSkillIds,
      selectedToolIds,
@@ -5733,7 +5733,7 @@ index f68e0df3c1..d7b859fda8 100644
      viewedGoal: appContext?.viewedGoal,
    });
  
-@@ -784,7 +801,7 @@ export const execAgentTurn = async (
+@@ -786,7 +803,7 @@ export const execAgentTurn = async (
  
    // 19. Create the operation via AgentRuntimeService, persist the reconnect
    // marker, and mint the gateway token (see `pipeline/startOperation`).
@@ -5742,16 +5742,16 @@ index f68e0df3c1..d7b859fda8 100644
      startOperation(
        {
          agentRuntimeService: deps.agentRuntimeService,
-@@ -802,7 +819,7 @@ export const execAgentTurn = async (
-         approvalClaim,
+@@ -805,7 +822,7 @@ export const execAgentTurn = async (
          approvalSourceOperationId,
          approvalSourceToolMessageIds,
+         autoSkillIds,
 -        autoStart,
 +        autoStart: isOrdinaryClaudeCode ? false : autoStart,
          onOperationCreated: params.onOperationCreated,
          markTopicRunning: params.markTopicRunning,
          // From here the run's completion releases the slot and settles the
-@@ -845,5 +862,33 @@ export const execAgentTurn = async (
+@@ -848,5 +865,33 @@ export const execAgentTurn = async (
        },
      ),
    );
@@ -5787,10 +5787,10 @@ index f68e0df3c1..d7b859fda8 100644
 +  return result;
  };
 diff --git a/apps/server/src/services/aiAgent/pipeline/operationPrep.ts b/apps/server/src/services/aiAgent/pipeline/operationPrep.ts
-index c3f6d4c2c3..d7c8bbf20a 100644
+index 339c4b4d84..5d6394c4b0 100644
 --- a/apps/server/src/services/aiAgent/pipeline/operationPrep.ts
 +++ b/apps/server/src/services/aiAgent/pipeline/operationPrep.ts
-@@ -619,14 +619,21 @@ export const prepareOperation = async (
+@@ -630,14 +630,21 @@ export const prepareOperation = async (
    // gates. manifestMap is intentionally broader for discovery and must not
    // by itself authorize a tool in chat/custom mode or without function calls.
    const historicalActivatedToolIds = extractActivatedToolIdsFromMessages(allMessages) ?? [];
@@ -11125,10 +11125,10 @@ index cf4139feaa..a2c15c0792 100644
        } satisfies FlowControl,
        headers: options?.extraHeaders,
 diff --git a/docs/development/database-schema.dbml b/docs/development/database-schema.dbml
-index fedf87cab7..91e5d55b66 100644
+index 6d90e3bea8..7bd87ce0b1 100644
 --- a/docs/development/database-schema.dbml
 +++ b/docs/development/database-schema.dbml
-@@ -1810,6 +1810,87 @@ table chat_groups_agents {
+@@ -1811,6 +1811,87 @@ table chat_groups_agents {
    }
  }
  
@@ -11217,7 +11217,7 @@ index fedf87cab7..91e5d55b66 100644
    id uuid [pk, not null, default: `gen_random_uuid()`]
    user_connector_id uuid [not null]
 diff --git a/locales/en-US/chat.json b/locales/en-US/chat.json
-index 1e6504e2ac..7a5e0d9a68 100644
+index aea254c37c..0eaaec3fb6 100644
 --- a/locales/en-US/chat.json
 +++ b/locales/en-US/chat.json
 @@ -143,6 +143,31 @@
@@ -11265,7 +11265,7 @@ index 4b86225107..3adb94fef8 100644
    "cohere.description": "Cohere delivers cutting-edge multilingual models, advanced retrieval, and AI workspaces for modern enterprises—all in one secure platform.",
    "cometapi.description": "CometAPI provides access to frontier models from OpenAI, Anthropic, Google, and more, letting users choose the best model and pricing for diverse use cases.",
 diff --git a/locales/zh-CN/chat.json b/locales/zh-CN/chat.json
-index 0108f0f3a0..baebf7d498 100644
+index 82cd43c737..30f9343f10 100644
 --- a/locales/zh-CN/chat.json
 +++ b/locales/zh-CN/chat.json
 @@ -143,6 +143,31 @@
@@ -11428,7 +11428,7 @@ index bc2b089be5..5ff5cfe3be 100644
      state: AgentState,
    ): Promise<[ChatToolPayload[], ChatToolPayload[]]> {
 diff --git a/packages/agent-runtime/src/types/state.ts b/packages/agent-runtime/src/types/state.ts
-index 63f385ee1a..6e97debf1e 100644
+index 8de3d71a36..2955c3e156 100644
 --- a/packages/agent-runtime/src/types/state.ts
 +++ b/packages/agent-runtime/src/types/state.ts
 @@ -17,6 +17,7 @@ import type {
@@ -13426,10 +13426,10 @@ index fbe3f55fc4..2f94016164 100644
      ),
    });
 diff --git a/packages/database/src/models/user.ts b/packages/database/src/models/user.ts
-index 2ac033265c..94ae955424 100644
+index b97132538c..5b3a400262 100644
 --- a/packages/database/src/models/user.ts
 +++ b/packages/database/src/models/user.ts
-@@ -88,6 +88,29 @@ interface LastActiveAtTransition {
+@@ -89,6 +89,29 @@ interface LastActiveAtTransition {
    userCreatedAt: Date;
  }
  
@@ -13459,7 +13459,7 @@ index 2ac033265c..94ae955424 100644
  export class UserModel {
    private userId: string;
    private db: LobeChatDatabase;
-@@ -938,12 +961,7 @@ export class UserModel {
+@@ -950,12 +973,7 @@ export class UserModel {
      db: LobeChatDatabase,
      options: ListUsersForMemoryExtractorOptions = {},
    ) => {
@@ -13473,7 +13473,7 @@ index 2ac033265c..94ae955424 100644
  
      const whitelistCondition =
        options.whitelist && options.whitelist.length > 0
-@@ -955,7 +973,7 @@ export class UserModel {
+@@ -967,7 +985,7 @@ export class UserModel {
      return db.query.users.findMany({
        columns: { createdAt: true, id: true },
        limit: options.limit,
@@ -13482,7 +13482,7 @@ index 2ac033265c..94ae955424 100644
        where,
      });
    };
-@@ -964,12 +982,7 @@ export class UserModel {
+@@ -976,12 +994,7 @@ export class UserModel {
      db: LobeChatDatabase,
      options: ListUsersForHourlyMemoryExtractorOptions = {},
    ) => {
@@ -13496,7 +13496,7 @@ index 2ac033265c..94ae955424 100644
  
      const whitelistCondition =
        options.whitelist && options.whitelist.length > 0
-@@ -1008,7 +1021,7 @@ export class UserModel {
+@@ -1020,7 +1033,7 @@ export class UserModel {
            hasChattedTopicCondition,
          ),
        )
@@ -15324,7 +15324,7 @@ index 375299e42c..0c19336f44 100644
  };
  
 diff --git a/packages/locales/src/default/chat.ts b/packages/locales/src/default/chat.ts
-index ebb7e2afdf..db284eb9e3 100644
+index 33eeffc49a..0e58c9c8f9 100644
 --- a/packages/locales/src/default/chat.ts
 +++ b/packages/locales/src/default/chat.ts
 @@ -24,6 +24,35 @@ export default {
@@ -15745,7 +15745,7 @@ index 0000000000..9a77becfa9
 +  toolCallId: string;
 +}
 diff --git a/packages/types/src/index.ts b/packages/types/src/index.ts
-index d288ea3711..bd9732214f 100644
+index 9aedd4ae2a..d63c7da0e5 100644
 --- a/packages/types/src/index.ts
 +++ b/packages/types/src/index.ts
 @@ -12,12 +12,14 @@ export * from './aiChat';
@@ -17235,10 +17235,10 @@ index dbdedf8c3d..4697999803 100644
      // A cold/GC'd run still uses the card's captured context, never the active tab.
      const operationAlive = !!operation;
 diff --git a/src/store/chat/slices/agentRun/actions/entries/conversationLifecycle/index.ts b/src/store/chat/slices/agentRun/actions/entries/conversationLifecycle/index.ts
-index 5340a8817f..6f0e7bb6b3 100644
+index 92e3178800..d6dc88dc52 100644
 --- a/src/store/chat/slices/agentRun/actions/entries/conversationLifecycle/index.ts
 +++ b/src/store/chat/slices/agentRun/actions/entries/conversationLifecycle/index.ts
-@@ -80,6 +80,7 @@ import {
+@@ -67,6 +67,7 @@ import {
    toDirectMentionThreadTitle,
  } from '@/store/chat/slices/agentRun/actions/dispatch/directMentionExecutor';
  import { resolveNewThreadIntent } from '@/store/chat/slices/agentRun/actions/dispatch/newThreadIntent';
@@ -17246,7 +17246,7 @@ index 5340a8817f..6f0e7bb6b3 100644
  import { buildRunLifecycle } from '@/store/chat/slices/agentRun/actions/lifecycle/buildRunLifecycle';
  import {
    findOrphanedQueueKey,
-@@ -460,15 +461,13 @@ export class ConversationLifecycleActionImpl {
+@@ -447,15 +448,13 @@ export class ConversationLifecycleActionImpl {
      const { newTopicProject, stagedDirectory, stagedProjectId } = projectRun;
      if (stagedDirectory) consumePendingTopicRepos(ownerAgentId); // a cloud repo pick conflicts
  
@@ -17269,7 +17269,7 @@ index 5340a8817f..6f0e7bb6b3 100644
      const runtimeType = selectRuntimeType({
        boundDeviceId: agencyConfig?.boundDeviceId,
        executionTarget: agencyConfig?.executionTarget,
-@@ -479,6 +478,7 @@ export class ConversationLifecycleActionImpl {
+@@ -466,6 +465,7 @@ export class ConversationLifecycleActionImpl {
        // started server-side via runTask) pass `forceRuntime` to override
        // the agent's local/cloud preference.
        parentRuntime: forceRuntime,
