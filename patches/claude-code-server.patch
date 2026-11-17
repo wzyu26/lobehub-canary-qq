@@ -4899,18 +4899,18 @@ index 53f06604ac..b261b09352 100644
  app.all('/api/device/managed/*', (c) => device.fetch(c.req.raw));
  app.all('/api/workflows', (c) => fetchWith(c, () => import('./workflows')));
 diff --git a/apps/server/src/routers/lambda/aiAgent/hetero.ts b/apps/server/src/routers/lambda/aiAgent/hetero.ts
-index f8b2b5a94a..ef6207c7aa 100644
+index 6c73fe85a1..11bf915401 100644
 --- a/apps/server/src/routers/lambda/aiAgent/hetero.ts
 +++ b/apps/server/src/routers/lambda/aiAgent/hetero.ts
-@@ -30,6 +30,7 @@ import {
-   reportHeteroControlResult,
+@@ -32,6 +32,7 @@ import {
    takeHeteroControl,
  } from '@/server/services/aiAgent/steerQueue/heteroControl';
+ import { stopHeteroBackgroundTask } from '@/server/services/aiAgent/steerQueue/heteroStopTask';
 +import { resolveClaudeCodeIntervention } from '@/server/services/claudeCode/interventionBridge';
  import { HeterogeneousAgentService } from '@/server/services/heterogeneousAgent';
  import {
    HeteroOperationPrincipalError,
-@@ -794,6 +795,18 @@ export const heteroRouter = router({
+@@ -840,6 +841,18 @@ export const heteroRouter = router({
          workspaceId: ctx.workspaceId,
        });
  
@@ -5103,10 +5103,10 @@ index a5378ca942..76b9ffbd7c 100644
          ? deriveAgentInterventionQueueDeduplicationId(operationId, initialStepCount)
          : undefined;
 diff --git a/apps/server/src/services/agentRuntime/AgentRuntimeService/executeStep/index.ts b/apps/server/src/services/agentRuntime/AgentRuntimeService/executeStep/index.ts
-index 70cc9bd3db..07615f3101 100644
+index 4ef9469497..1052ccf9c3 100644
 --- a/apps/server/src/services/agentRuntime/AgentRuntimeService/executeStep/index.ts
 +++ b/apps/server/src/services/agentRuntime/AgentRuntimeService/executeStep/index.ts
-@@ -202,6 +202,10 @@ export async function executeStep(
+@@ -232,6 +232,10 @@ export async function executeStep(
        }
        stopRunSlotLease = startRunSlotLease(deps.userId, agentState);
  
@@ -5134,18 +5134,10 @@ index 862ec04f53..6e855609c8 100644
      return computeDeviceContext(this.context, ...args);
    }
 diff --git a/apps/server/src/services/agentRuntime/AgentRuntimeService/operationControl.ts b/apps/server/src/services/agentRuntime/AgentRuntimeService/operationControl.ts
-index 6a4ec2ce47..3b76b8ac58 100644
+index ecd11e95e1..f07b24f8cc 100644
 --- a/apps/server/src/services/agentRuntime/AgentRuntimeService/operationControl.ts
 +++ b/apps/server/src/services/agentRuntime/AgentRuntimeService/operationControl.ts
-@@ -38,6 +38,7 @@ export type OperationControlDeps = Pick<
-   | 'endExpiredClientLlmWait'
-   | 'messageModel'
-   | 'queueService'
-+  | 'serverDB'
-   | 'streamManager'
-   | 'traceRecorder'
-   | 'userId'
-@@ -112,11 +113,43 @@ export async function interruptOperation(
+@@ -117,11 +117,43 @@ export async function interruptOperation(
    operationId: string,
  ): Promise<boolean> {
    const state = await deps.coordinator.loadAgentState(operationId);
@@ -5505,7 +5497,7 @@ index 8349ee443d..42c7d64fc3 100644
    metadata: {},
    status: 'running',
 diff --git a/apps/server/src/services/aiAgent/deviceAccessPolicy.test.ts b/apps/server/src/services/aiAgent/deviceAccessPolicy.test.ts
-index 4c2a59f276..4bc292ff01 100644
+index 8da947c8f0..730eaa634d 100644
 --- a/apps/server/src/services/aiAgent/deviceAccessPolicy.test.ts
 +++ b/apps/server/src/services/aiAgent/deviceAccessPolicy.test.ts
 @@ -13,6 +13,18 @@ const baseBotContext = (overrides: Partial<ChatTopicBotContext> = {}): ChatTopic
@@ -5528,7 +5520,7 @@ index 4c2a59f276..4bc292ff01 100644
      expect(resolveDeviceAccessPolicy({})).toEqual({
        canUseDevice: true,
 diff --git a/apps/server/src/services/aiAgent/deviceAccessPolicy.ts b/apps/server/src/services/aiAgent/deviceAccessPolicy.ts
-index 316492b961..d76b6a91c4 100644
+index 44a665ac32..ae3d62c7c7 100644
 --- a/apps/server/src/services/aiAgent/deviceAccessPolicy.ts
 +++ b/apps/server/src/services/aiAgent/deviceAccessPolicy.ts
 @@ -1,4 +1,4 @@
@@ -5546,16 +5538,23 @@ index 316492b961..d76b6a91c4 100644
    /** Non-bot caller (web / desktop / mobile UI). */
    | 'first-party'
    /** Bot caller, sender matches the configured owner platform ID. */
-@@ -62,6 +64,7 @@ const PERSONAL_SCOPE_BOT_PLATFORMS = new Set<string>(['wechat']);
+@@ -70,6 +72,7 @@ const PERSONAL_SCOPE_BOT_PLATFORMS = new Set<string>(['wechat']);
  export interface DeviceAccessPolicyInput {
    /** Undefined when the caller is a first-party UI (web / desktop / mobile). */
    botContext?: ChatTopicBotContext;
 +  runtimeBackend?: AssistantRuntimeBackend;
-   /** True when the run serves a shared-agent visitor (share gate present). */
-   shareVisitor?: boolean;
- }
-@@ -93,6 +96,10 @@ export const resolveDeviceAccessPolicy = (
-     return { canUseDevice: false, reason: 'share-visitor' };
+   /**
+    * Present when the run serves a shared-agent visitor (share gate present);
+    * `canUseDevice` is the share's device grant resolved for this visitor.
+@@ -102,11 +105,16 @@ export const resolveDeviceAccessPolicy = (
+   // devices only through the share's own grant, regardless of how the
+   // request arrived.
+   if (shareVisitor) {
+-    return shareVisitor.canUseDevice
++    // The server worker stays server-only even for a granted share visitor.
++    return shareVisitor.canUseDevice && input.runtimeBackend !== 'claude-code'
+       ? { canUseDevice: true, reason: 'share-visitor-granted' }
+       : { canUseDevice: false, reason: 'share-visitor' };
    }
  
 +  if (input.runtimeBackend === 'claude-code') {
@@ -5566,10 +5565,10 @@ index 316492b961..d76b6a91c4 100644
      return { canUseDevice: true, reason: 'first-party' };
    }
 diff --git a/apps/server/src/services/aiAgent/index.ts b/apps/server/src/services/aiAgent/index.ts
-index 40a322322a..92cab23324 100644
+index be911343ca..aff5ff47e6 100644
 --- a/apps/server/src/services/aiAgent/index.ts
 +++ b/apps/server/src/services/aiAgent/index.ts
-@@ -719,6 +719,7 @@ export class AiAgentService {
+@@ -726,6 +726,7 @@ export class AiAgentService {
     * AgentRuntimeService.
     */
    runDeferredInit = async (params: {
@@ -5578,10 +5577,10 @@ index 40a322322a..92cab23324 100644
      request: AgentRunInitRequest;
      state: AgentState;
 diff --git a/apps/server/src/services/aiAgent/pipeline/deferredInit.ts b/apps/server/src/services/aiAgent/pipeline/deferredInit.ts
-index 52c91ca393..3d012dddd7 100644
+index 71eea7b176..94012e7fee 100644
 --- a/apps/server/src/services/aiAgent/pipeline/deferredInit.ts
 +++ b/apps/server/src/services/aiAgent/pipeline/deferredInit.ts
-@@ -147,9 +147,15 @@ export const runDeferredOperationInit = async (
+@@ -153,9 +153,15 @@ export const runDeferredOperationInit = async (
    deps: DeferredOperationInitDeps,
    {
      operationId,
@@ -5598,7 +5597,7 @@ index 52c91ca393..3d012dddd7 100644
  ): Promise<{ context: AgentRuntimeContext; state: Partial<AgentState> }> => {
    const ctx = await restoreRunContext(deps, state, request);
    ctx.shareGate = await resolveShareGate(deps, state.principal?.actor?.shareVisitor);
-@@ -160,29 +166,31 @@ export const runDeferredOperationInit = async (
+@@ -166,29 +172,31 @@ export const runDeferredOperationInit = async (
      !!request.resumeApprovals?.length ||
      !!request.resumeToolResult;
  
@@ -5888,7 +5887,7 @@ index 0000000000..4571eaf378
 +  });
 +});
 diff --git a/apps/server/src/services/aiAgent/pipeline/turnSetup.ts b/apps/server/src/services/aiAgent/pipeline/turnSetup.ts
-index 1eef8da4f4..a12cd87995 100644
+index 591e882809..877ed3e8eb 100644
 --- a/apps/server/src/services/aiAgent/pipeline/turnSetup.ts
 +++ b/apps/server/src/services/aiAgent/pipeline/turnSetup.ts
 @@ -32,6 +32,7 @@ import { resolveModelExtendParamsForUser } from '@/server/modules/AgentRuntime/a
@@ -5918,10 +5917,10 @@ index 1eef8da4f4..a12cd87995 100644
    let topicEditingGroupId: string | undefined;
  
    // Share-visitor fail-closed gate — reject a heterogeneous (Claude Code /
-@@ -554,7 +558,11 @@ export const setupTurn = async (
-   // agent-level config, before any topic-pinned model override) rather than
-   // at the later hetero-detection site (`isHeteroAgent`) so it runs ahead of
-   // ALL row creation, not just the message rows.
+@@ -558,7 +562,11 @@ export const setupTurn = async (
+   // topic-pinned model override) rather than at the later hetero-detection
+   // site (`isHeteroAgent`) so it runs ahead of ALL row creation, not just the
+   // message rows.
 -  if (shareGate && (heterogeneousProvider?.type || isHeterogeneousAgentModelId(model))) {
 +  if (
 +    shareGate &&
@@ -5931,7 +5930,7 @@ index 1eef8da4f4..a12cd87995 100644
      throw new TRPCError({
        code: 'FORBIDDEN',
        message: ChatErrorType.ShareHeterogeneousAgentUnsupported,
-@@ -567,6 +575,7 @@ export const setupTurn = async (
+@@ -571,6 +579,7 @@ export const setupTurn = async (
    };
    /** Pin the run to the device a project directory lives on — only it can honour the run. */
    const routeToProjectDirectory = async (directory: { deviceId: string | null }) => {
@@ -5939,7 +5938,7 @@ index 1eef8da4f4..a12cd87995 100644
      if (
        agentConfig.agencyConfig?.executionTargetSelectionPolicy === 'fixed' &&
        agentConfig.agencyConfig.boundDeviceId !== directory.deviceId
-@@ -718,19 +727,6 @@ export const setupTurn = async (
+@@ -722,19 +731,6 @@ export const setupTurn = async (
          taskId: operationTaskId,
          topicProjectId: existingTopic?.projectId ?? null,
        });
@@ -5959,7 +5958,7 @@ index 1eef8da4f4..a12cd87995 100644
        // Fail-closed guard: a non-share run must never operate on a share-visitor
        // topic. `findById` is ownership-scoped but deliberately does NOT exclude
        // visitor topics (see its JSDoc) — they carry the CREATOR's own userId for
-@@ -764,6 +760,17 @@ export const setupTurn = async (
+@@ -768,6 +764,17 @@ export const setupTurn = async (
            topicId,
          );
        }
@@ -5977,7 +5976,7 @@ index 1eef8da4f4..a12cd87995 100644
        // Effort and speed pins live in metadata and are independent of the model
        // pin (a runtime without a model selector can still pin them). They belong
        // to the topic's own agent for the same reason as the model pin.
-@@ -806,6 +813,7 @@ export const setupTurn = async (
+@@ -810,6 +817,7 @@ export const setupTurn = async (
        // A project-directory topic already routed to its directory's device above.
        if (
          !requestedDeviceId &&
@@ -5985,16 +5984,16 @@ index 1eef8da4f4..a12cd87995 100644
          !existingTopic?.projectWorkingDirectoryId &&
          topicPinnedDeviceId &&
          !isFixedExecutionTargetSelection &&
-@@ -819,7 +827,7 @@ export const setupTurn = async (
+@@ -823,7 +831,7 @@ export const setupTurn = async (
  
        // Re-assert the share restriction after topic overrides are applied.
-       // Heterogeneous agents are not available for shared visitor runs.
+       // Heterogeneous agents are not available for shared visitor runs (see above).
 -      if (shareGate && isHeterogeneousAgentModelId(model)) {
 +      if (shareGate && provider !== 'claude-code' && isHeterogeneousAgentModelId(model)) {
          throw new TRPCError({
            code: 'FORBIDDEN',
            message: ChatErrorType.ShareHeterogeneousAgentUnsupported,
-@@ -874,6 +882,16 @@ export const setupTurn = async (
+@@ -878,6 +886,16 @@ export const setupTurn = async (
    // chat) and stops the device list from leaking into the LLM context.
    const { canUseDevice, reason: deviceAccessReason } = resolveDeviceAccessPolicy({
      botContext,
@@ -6008,10 +6007,10 @@ index 1eef8da4f4..a12cd87995 100644
 +      })
 +        ? 'claude-code'
 +        : 'api',
-     shareVisitor: !!shareGate,
+     shareVisitor: shareGate ? { canUseDevice: shareGate.canUseDevice } : undefined,
    });
    log(
-@@ -887,7 +905,8 @@ export const setupTurn = async (
+@@ -891,7 +909,8 @@ export const setupTurn = async (
    // the UI), fall back to the legacy `model` field for backwards compatibility
    // (shared with the inbox write guard via `isHeterogeneousAgentModelId`).
    const heteroProviderType = agentConfig.agencyConfig?.heterogeneousProvider?.type;
@@ -10825,7 +10824,7 @@ index 0000000000..aef13cf7e5
 +  }
 +};
 diff --git a/apps/server/src/services/heterogeneousAgent/HeterogeneousPersistenceHandler/index.interventionAck.test.ts b/apps/server/src/services/heterogeneousAgent/HeterogeneousPersistenceHandler/index.interventionAck.test.ts
-index 240ff13f8a..0f18f609eb 100644
+index 01ab7be200..b8a2b92765 100644
 --- a/apps/server/src/services/heterogeneousAgent/HeterogeneousPersistenceHandler/index.interventionAck.test.ts
 +++ b/apps/server/src/services/heterogeneousAgent/HeterogeneousPersistenceHandler/index.interventionAck.test.ts
 @@ -232,7 +232,11 @@ describe('HeterogeneousPersistenceHandler — event branch coverage', () => {
@@ -10981,7 +10980,7 @@ index 0556e55410..664adadc50 100644
    await deps.messageModel.updatePluginState(toolMsgId, {
      [HETEROGENEOUS_INTERVENTION_STATE_KEY]: durableState,
 diff --git a/apps/server/src/services/heterogeneousAgent/HeterogeneousPersistenceHandler/stateSync.ts b/apps/server/src/services/heterogeneousAgent/HeterogeneousPersistenceHandler/stateSync.ts
-index 5b27f1135c..e141ab605e 100644
+index 5c5513809b..3fb3d4e1c8 100644
 --- a/apps/server/src/services/heterogeneousAgent/HeterogeneousPersistenceHandler/stateSync.ts
 +++ b/apps/server/src/services/heterogeneousAgent/HeterogeneousPersistenceHandler/stateSync.ts
 @@ -61,7 +61,8 @@ export async function loadOrCreateState(
@@ -11021,7 +11020,7 @@ index 5b27f1135c..e141ab605e 100644
    log(
      'created state for operation %s on topic %s msgId=%s tools=%d restored(content=%d tools=%d)',
      operationId,
-@@ -595,6 +599,11 @@ export async function syncAssistantPointerForAdvancedStep(
+@@ -599,6 +603,11 @@ export async function syncAssistantPointerForAdvancedStep(
    deps: HeterogeneousPersistenceHandlerDeps,
    state: OperationState,
  ): Promise<void> {
@@ -11217,7 +11216,7 @@ index 6d90e3bea8..7bd87ce0b1 100644
    id uuid [pk, not null, default: `gen_random_uuid()`]
    user_connector_id uuid [not null]
 diff --git a/locales/en-US/chat.json b/locales/en-US/chat.json
-index aea254c37c..0eaaec3fb6 100644
+index f58577408b..c4ddc0cc2a 100644
 --- a/locales/en-US/chat.json
 +++ b/locales/en-US/chat.json
 @@ -143,6 +143,31 @@
@@ -11265,7 +11264,7 @@ index 4b86225107..3adb94fef8 100644
    "cohere.description": "Cohere delivers cutting-edge multilingual models, advanced retrieval, and AI workspaces for modern enterprises—all in one secure platform.",
    "cometapi.description": "CometAPI provides access to frontier models from OpenAI, Anthropic, Google, and more, letting users choose the best model and pricing for diverse use cases.",
 diff --git a/locales/zh-CN/chat.json b/locales/zh-CN/chat.json
-index 82cd43c737..30f9343f10 100644
+index 9344d26b8c..196390af43 100644
 --- a/locales/zh-CN/chat.json
 +++ b/locales/zh-CN/chat.json
 @@ -143,6 +143,31 @@
@@ -11390,7 +11389,7 @@ index 0000000000..85f2bf1a23
 +  }
 +}
 diff --git a/packages/agent-gateway-client/src/mux/GatewayMuxClient.ts b/packages/agent-gateway-client/src/mux/GatewayMuxClient.ts
-index ac7fad0dba..497210911a 100644
+index 5f04a2a1ad..91b5c0af65 100644
 --- a/packages/agent-gateway-client/src/mux/GatewayMuxClient.ts
 +++ b/packages/agent-gateway-client/src/mux/GatewayMuxClient.ts
 @@ -1,3 +1,4 @@
@@ -14813,7 +14812,7 @@ index 0000000000..e9ec663aec
 +
 +export const ASSISTANT_ISOLATION_ARGS = ['--setting-sources', '', '--strict-mcp-config'] as const;
 diff --git a/packages/heterogeneous-agents/src/spawn/index.ts b/packages/heterogeneous-agents/src/spawn/index.ts
-index ecbd20e29d..e88f302c98 100644
+index 8dff1da04c..bef429a912 100644
 --- a/packages/heterogeneous-agents/src/spawn/index.ts
 +++ b/packages/heterogeneous-agents/src/spawn/index.ts
 @@ -193,6 +193,7 @@ export {
@@ -15104,7 +15103,7 @@ index 0000000000..3bba683e57
 +  });
 +});
 diff --git a/packages/heterogeneous-agents/src/spawn/spawnAgent.ts b/packages/heterogeneous-agents/src/spawn/spawnAgent.ts
-index 375299e42c..0c19336f44 100644
+index e6fb0d8364..1be91f2473 100644
 --- a/packages/heterogeneous-agents/src/spawn/spawnAgent.ts
 +++ b/packages/heterogeneous-agents/src/spawn/spawnAgent.ts
 @@ -17,6 +17,12 @@ import {
@@ -15120,7 +15119,7 @@ index 375299e42c..0c19336f44 100644
  import {
    type ClaudeCodeControlRequest,
    type ClaudeCodeControlRequestHandle,
-@@ -56,7 +62,14 @@ export interface SpawnAgentOptions {
+@@ -57,7 +63,14 @@ export interface SpawnAgentOptions {
    cwd?: string;
    /** Create a dedicated Unix process group. Disable beneath a detached wrapper. */
    detached?: boolean;
@@ -15136,7 +15135,7 @@ index 375299e42c..0c19336f44 100644
    env?: Record<string, string>;
    /** Extra CLI arguments appended after the agent's preset flags. */
    extraArgs?: string[];
-@@ -67,6 +80,8 @@ export interface SpawnAgentOptions {
+@@ -68,6 +81,8 @@ export interface SpawnAgentOptions {
     * connected client renders live token streaming.
     */
    includePartialMessages?: boolean;
@@ -15145,7 +15144,7 @@ index 375299e42c..0c19336f44 100644
    /** Initial model selected through the agent protocol after session setup (Droid/TRAE ACP). */
    initialModel?: string;
    /**
-@@ -75,6 +90,8 @@ export interface SpawnAgentOptions {
+@@ -76,6 +91,8 @@ export interface SpawnAgentOptions {
     * plain string this is unused.
     */
    inputOptions?: BuildAgentInputOptions;
@@ -15154,8 +15153,8 @@ index 375299e42c..0c19336f44 100644
    /**
     * (Claude Code only) Keep stdin open while the session can still use input,
     * exposing `sendUserMessage` / `interruptTurn` on the handle. Runtime end is
-@@ -167,6 +184,12 @@ export interface SpawnAgentHandle {
-    * runs the message as a new turn instead.
+@@ -169,6 +186,12 @@ export interface SpawnAgentHandle {
+    * message as a new turn instead.
     */
    sendUserMessage?: (prompt: AgentPromptInput, options?: { uuid?: string }) => Promise<boolean>;
 +  /**
@@ -15167,7 +15166,7 @@ index 375299e42c..0c19336f44 100644
    /**
     * The agent's native session id, extracted from the `system:init` event.
     * Available after the `events` async iterable has been fully consumed.
-@@ -292,6 +315,7 @@ interface BuildSpawnArgsParams {
+@@ -294,6 +317,7 @@ interface BuildSpawnArgsParams {
    includePartialMessages: boolean;
    /** Per-agent input args produced by `buildAgentInput` (e.g. Codex `--image`). */
    inputArgs: string[];
@@ -15175,7 +15174,7 @@ index 375299e42c..0c19336f44 100644
    /** (Claude Code only) Replay consumed user messages for live input. */
    liveInput?: boolean;
    /** Native session id for resume; undefined for fresh runs. */
-@@ -302,6 +326,7 @@ const buildClaudeCodeArgs = ({
+@@ -304,6 +328,7 @@ const buildClaudeCodeArgs = ({
    extraArgs,
    includePartialMessages,
    inputArgs,
@@ -15183,7 +15182,7 @@ index 375299e42c..0c19336f44 100644
    liveInput,
    resumeSessionId,
  }: BuildSpawnArgsParams) => [
-@@ -312,6 +337,7 @@ const buildClaudeCodeArgs = ({
+@@ -314,6 +339,7 @@ const buildClaudeCodeArgs = ({
    ...(resumeSessionId ? ['--resume', resumeSessionId] : []),
    ...inputArgs,
    ...extraArgs,
@@ -15191,7 +15190,7 @@ index 375299e42c..0c19336f44 100644
  ];
  
  const buildCodeBuddyArgs = ({
-@@ -434,7 +460,9 @@ const buildSpawnArgs = (params: BuildSpawnArgsParams): string[] => {
+@@ -436,7 +462,9 @@ const buildSpawnArgs = (params: BuildSpawnArgsParams): string[] => {
  };
  
  const killProcessTree = (proc: ChildProcess, signal: NodeJS.Signals, detached: boolean): void => {
@@ -15202,7 +15201,7 @@ index 375299e42c..0c19336f44 100644
  
    // On Windows the spawn `detached` flag has different semantics; fall back
    // to a direct signal. Tree-kill via `taskkill` is what the desktop
-@@ -481,6 +509,35 @@ const killProcessTree = (proc: ChildProcess, signal: NodeJS.Signals, detached: b
+@@ -483,6 +511,35 @@ const killProcessTree = (proc: ChildProcess, signal: NodeJS.Signals, detached: b
   * failed image fetch surfaces before the child starts.
   */
  export const spawnAgent = async (options: SpawnAgentOptions): Promise<SpawnAgentHandle> => {
@@ -15238,7 +15237,7 @@ index 375299e42c..0c19336f44 100644
    if (options.agentType === 'trae') return spawnTraeAcpAgent(options);
  
    const command = resolveHeterogeneousAgentCommand(options.agentType, options.command);
-@@ -507,7 +564,7 @@ export const spawnAgent = async (options: SpawnAgentOptions): Promise<SpawnAgent
+@@ -509,7 +566,7 @@ export const spawnAgent = async (options: SpawnAgentOptions): Promise<SpawnAgent
    // caller's env, not the inherited one: a standalone run nested inside some
    // other conversation is not answering it.
    const lobeHubCli =
@@ -15247,7 +15246,7 @@ index 375299e42c..0c19336f44 100644
        ? await prepareClaudeCodeLobeHubCli(options.prompt, options.extraArgs, {
            resumed: Boolean(options.resumeSessionId),
            version: options.commandVersion,
-@@ -519,11 +576,6 @@ export const spawnAgent = async (options: SpawnAgentOptions): Promise<SpawnAgent
+@@ -521,11 +578,6 @@ export const spawnAgent = async (options: SpawnAgentOptions): Promise<SpawnAgent
      options.inputOptions,
    );
    const inputPlan = { ...promptPlan, args: [...lobeHubCli.args, ...promptPlan.args] };
@@ -15259,7 +15258,7 @@ index 375299e42c..0c19336f44 100644
    // Codex builds each shell command's env from `[shell_environment_policy]`,
    // not from its own process env, so a user's `inherit = "core"` strips the
    // run context `lh` needs. Forward it as `shell_environment_policy.set.*`
-@@ -550,6 +602,8 @@ const spawnCliAgent = async (
+@@ -552,6 +604,8 @@ const spawnCliAgent = async (
    codexJwtFile: CodexJwtFile | undefined,
  ): Promise<SpawnAgentHandle> => {
    const liveInput = options.agentType === 'claude-code' && options.liveInput === true;
@@ -15268,7 +15267,7 @@ index 375299e42c..0c19336f44 100644
    const args = buildSpawnArgs({
      agentType: options.agentType,
      configArgs:
-@@ -559,6 +613,7 @@ const spawnCliAgent = async (
+@@ -561,6 +615,7 @@ const spawnCliAgent = async (
      extraArgs: options.extraArgs ?? [],
      includePartialMessages: options.includePartialMessages ?? false,
      inputArgs: inputPlan.args,
@@ -15276,7 +15275,7 @@ index 375299e42c..0c19336f44 100644
      liveInput,
      resumeSessionId: options.resumeSessionId,
    });
-@@ -583,7 +638,7 @@ const spawnCliAgent = async (
+@@ -585,7 +640,7 @@ const spawnCliAgent = async (
          })
        : undefined;
  
@@ -15285,7 +15284,7 @@ index 375299e42c..0c19336f44 100644
    const detached = platform() !== 'win32' && (options.detached ?? true);
    const startedAt = Date.now();
    const proc = spawnManaged(cliSpawnPlan.command, cliSpawnPlan.args, {
-@@ -656,8 +711,12 @@ const spawnCliAgent = async (
+@@ -658,8 +713,12 @@ const spawnCliAgent = async (
    }
  
    const live = liveInput && proc.stdin ? new ClaudeCodeLiveInput(proc.stdin) : undefined;
@@ -15298,7 +15297,7 @@ index 375299e42c..0c19336f44 100644
    } else if (proc.stdin) {
      proc.stdin.write(inputPlan.stdin, () => {
        proc.stdin?.end();
-@@ -794,6 +853,24 @@ const spawnCliAgent = async (
+@@ -790,6 +849,24 @@ const spawnCliAgent = async (
        return pipeline.sessionId;
      },
      stderr,
@@ -15324,7 +15323,7 @@ index 375299e42c..0c19336f44 100644
  };
  
 diff --git a/packages/locales/src/default/chat.ts b/packages/locales/src/default/chat.ts
-index 33eeffc49a..0e58c9c8f9 100644
+index 97cd403361..03c7b24c3e 100644
 --- a/packages/locales/src/default/chat.ts
 +++ b/packages/locales/src/default/chat.ts
 @@ -24,6 +24,35 @@ export default {
@@ -15745,7 +15744,7 @@ index 0000000000..9a77becfa9
 +  toolCallId: string;
 +}
 diff --git a/packages/types/src/index.ts b/packages/types/src/index.ts
-index 9aedd4ae2a..d63c7da0e5 100644
+index 9d4300736d..647c14e06c 100644
 --- a/packages/types/src/index.ts
 +++ b/packages/types/src/index.ts
 @@ -12,12 +12,14 @@ export * from './aiChat';
@@ -16688,10 +16687,10 @@ index 20e0331c23..65d98a2184 100644
 +    : createElement(LobeProviderCombine, props),
 +);
 diff --git a/src/libs/swr/keys.ts b/src/libs/swr/keys.ts
-index ab6655b120..851db5692c 100644
+index 99027b3ede..1d5582de9e 100644
 --- a/src/libs/swr/keys.ts
 +++ b/src/libs/swr/keys.ts
-@@ -59,6 +59,10 @@ export const channelKeys = {
+@@ -60,6 +60,10 @@ export const channelKeys = {
    ),
  };
  
@@ -17235,18 +17234,18 @@ index dbdedf8c3d..4697999803 100644
      // A cold/GC'd run still uses the card's captured context, never the active tab.
      const operationAlive = !!operation;
 diff --git a/src/store/chat/slices/agentRun/actions/entries/conversationLifecycle/index.ts b/src/store/chat/slices/agentRun/actions/entries/conversationLifecycle/index.ts
-index 92e3178800..d6dc88dc52 100644
+index 7cad328782..9a229ae166 100644
 --- a/src/store/chat/slices/agentRun/actions/entries/conversationLifecycle/index.ts
 +++ b/src/store/chat/slices/agentRun/actions/entries/conversationLifecycle/index.ts
-@@ -67,6 +67,7 @@ import {
+@@ -64,6 +64,7 @@ import {
    toDirectMentionThreadTitle,
  } from '@/store/chat/slices/agentRun/actions/dispatch/directMentionExecutor';
  import { resolveNewThreadIntent } from '@/store/chat/slices/agentRun/actions/dispatch/newThreadIntent';
 +import { resolveAssistantTransport } from '@/store/chat/slices/agentRun/actions/dispatch/resolveAssistantTransport';
  import { buildRunLifecycle } from '@/store/chat/slices/agentRun/actions/lifecycle/buildRunLifecycle';
  import {
-   findOrphanedQueueKey,
-@@ -447,15 +448,13 @@ export class ConversationLifecycleActionImpl {
+   drainQueuedTurn,
+@@ -446,15 +447,13 @@ export class ConversationLifecycleActionImpl {
      const { newTopicProject, stagedDirectory, stagedProjectId } = projectRun;
      if (stagedDirectory) consumePendingTopicRepos(ownerAgentId); // a cloud repo pick conflicts
  
@@ -17269,7 +17268,7 @@ index 92e3178800..d6dc88dc52 100644
      const runtimeType = selectRuntimeType({
        boundDeviceId: agencyConfig?.boundDeviceId,
        executionTarget: agencyConfig?.executionTarget,
-@@ -466,6 +465,7 @@ export class ConversationLifecycleActionImpl {
+@@ -465,6 +464,7 @@ export class ConversationLifecycleActionImpl {
        // started server-side via runTask) pass `forceRuntime` to override
        // the agent's local/cloud preference.
        parentRuntime: forceRuntime,
