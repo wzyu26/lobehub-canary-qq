@@ -11112,7 +11112,7 @@ index cf4139feaa..a2c15c0792 100644
        } satisfies FlowControl,
        headers: options?.extraHeaders,
 diff --git a/docs/development/database-schema.dbml b/docs/development/database-schema.dbml
-index fa216273a5..bca7227d1f 100644
+index 44d0b7d64b..7abad2dc03 100644
 --- a/docs/development/database-schema.dbml
 +++ b/docs/development/database-schema.dbml
 @@ -1831,6 +1831,87 @@ table chat_groups_agents {
@@ -11204,7 +11204,7 @@ index fa216273a5..bca7227d1f 100644
    id uuid [pk, not null, default: `gen_random_uuid()`]
    user_connector_id uuid [not null]
 diff --git a/locales/en-US/chat.json b/locales/en-US/chat.json
-index d5a66e6241..b9f0ac4e76 100644
+index 95724248e4..044e08d738 100644
 --- a/locales/en-US/chat.json
 +++ b/locales/en-US/chat.json
 @@ -143,6 +143,31 @@
@@ -11252,7 +11252,7 @@ index 4b86225107..3adb94fef8 100644
    "cohere.description": "Cohere delivers cutting-edge multilingual models, advanced retrieval, and AI workspaces for modern enterprises—all in one secure platform.",
    "cometapi.description": "CometAPI provides access to frontier models from OpenAI, Anthropic, Google, and more, letting users choose the best model and pricing for diverse use cases.",
 diff --git a/locales/zh-CN/chat.json b/locales/zh-CN/chat.json
-index 888da94f63..805ee350b8 100644
+index 0799f613e5..f227bf5113 100644
 --- a/locales/zh-CN/chat.json
 +++ b/locales/zh-CN/chat.json
 @@ -143,6 +143,31 @@
@@ -13413,10 +13413,10 @@ index fbe3f55fc4..2f94016164 100644
      ),
    });
 diff --git a/packages/database/src/models/user.ts b/packages/database/src/models/user.ts
-index b97132538c..5b3a400262 100644
+index 9b50390f96..d38408d306 100644
 --- a/packages/database/src/models/user.ts
 +++ b/packages/database/src/models/user.ts
-@@ -89,6 +89,29 @@ interface LastActiveAtTransition {
+@@ -90,6 +90,29 @@ interface LastActiveAtTransition {
    userCreatedAt: Date;
  }
  
@@ -13446,7 +13446,7 @@ index b97132538c..5b3a400262 100644
  export class UserModel {
    private userId: string;
    private db: LobeChatDatabase;
-@@ -950,12 +973,7 @@ export class UserModel {
+@@ -955,12 +978,7 @@ export class UserModel {
      db: LobeChatDatabase,
      options: ListUsersForMemoryExtractorOptions = {},
    ) => {
@@ -13460,7 +13460,7 @@ index b97132538c..5b3a400262 100644
  
      const whitelistCondition =
        options.whitelist && options.whitelist.length > 0
-@@ -967,7 +985,7 @@ export class UserModel {
+@@ -972,7 +990,7 @@ export class UserModel {
      return db.query.users.findMany({
        columns: { createdAt: true, id: true },
        limit: options.limit,
@@ -13469,7 +13469,7 @@ index b97132538c..5b3a400262 100644
        where,
      });
    };
-@@ -976,12 +994,7 @@ export class UserModel {
+@@ -981,12 +999,7 @@ export class UserModel {
      db: LobeChatDatabase,
      options: ListUsersForHourlyMemoryExtractorOptions = {},
    ) => {
@@ -13483,7 +13483,7 @@ index b97132538c..5b3a400262 100644
  
      const whitelistCondition =
        options.whitelist && options.whitelist.length > 0
-@@ -1020,7 +1033,7 @@ export class UserModel {
+@@ -1025,7 +1038,7 @@ export class UserModel {
            hasChattedTopicCondition,
          ),
        )
@@ -15091,7 +15091,7 @@ index 0000000000..3bba683e57
 +  });
 +});
 diff --git a/packages/heterogeneous-agents/src/spawn/spawnAgent.ts b/packages/heterogeneous-agents/src/spawn/spawnAgent.ts
-index e3bad47f3f..5653375bed 100644
+index fbe68de765..037f7b13e7 100644
 --- a/packages/heterogeneous-agents/src/spawn/spawnAgent.ts
 +++ b/packages/heterogeneous-agents/src/spawn/spawnAgent.ts
 @@ -17,6 +17,12 @@ import {
@@ -15285,7 +15285,7 @@ index e3bad47f3f..5653375bed 100644
    } else if (proc.stdin) {
      proc.stdin.write(inputPlan.stdin, () => {
        proc.stdin?.end();
-@@ -792,6 +851,24 @@ const spawnCliAgent = async (
+@@ -794,6 +853,24 @@ const spawnCliAgent = async (
        return pipeline.sessionId;
      },
      stderr,
@@ -15311,7 +15311,7 @@ index e3bad47f3f..5653375bed 100644
  };
  
 diff --git a/packages/locales/src/default/chat.ts b/packages/locales/src/default/chat.ts
-index 77021b2acf..4cf8f8996a 100644
+index 29438cce30..852cb74e56 100644
 --- a/packages/locales/src/default/chat.ts
 +++ b/packages/locales/src/default/chat.ts
 @@ -24,6 +24,35 @@ export default {
@@ -15784,7 +15784,7 @@ index 5e13e942a6..417e62fe1b 100644
                value={{ model: merged.model, provider: merged.provider ?? undefined }}
                onChange={handleModelChange}
 diff --git a/src/features/ChatInput/ActionBar/Model/index.tsx b/src/features/ChatInput/ActionBar/Model/index.tsx
-index abadb6cfec..a4e3688b57 100644
+index 2cd3429d15..5c3ea2c66e 100644
 --- a/src/features/ChatInput/ActionBar/Model/index.tsx
 +++ b/src/features/ChatInput/ActionBar/Model/index.tsx
 @@ -5,6 +5,8 @@ import { useTranslation } from 'react-i18next';
@@ -15794,19 +15794,20 @@ index abadb6cfec..a4e3688b57 100644
 +import { claudeCodeAvailabilityNotice } from '@/hooks/claudeCodeModels';
 +import { useClaudeCodeModels } from '@/hooks/useClaudeCodeModels';
  import { useEnabledChatModels } from '@/hooks/useEnabledChatModels';
- import { aiModelSelectors, useAiInfraStore } from '@/store/aiInfra';
- 
-@@ -33,20 +35,36 @@ const ModelSwitch = memo(() => {
-   } = useTopicModelSwitch(selection);
-   const { isShared } = useAgentShareSupported(agentId);
+ import { useAgentStore } from '@/store/agent';
+ import { agentByIdSelectors } from '@/store/agent/selectors';
+@@ -38,20 +40,37 @@ const ModelSwitch = memo(() => {
+     agentByIdSelectors.isAgentShareModelRestrictionExemptById(agentId),
+   );
    const chatModels = useEnabledChatModels();
 -  const enabledList =
--    !topicId && isShared && AGENT_SHARE_ALLOWED_PROVIDERS
+-    !topicId && isShared && AGENT_SHARE_ALLOWED_PROVIDERS && !shareModelExempt
 -      ? chatModels.filter((item) => AGENT_SHARE_ALLOWED_PROVIDERS?.includes(item.id))
 -      : undefined;
 -  const modelNotice = enabledList ? (
 +  const claudeCode = useClaudeCodeModels(chatModels);
-+  const isShareRestricted = !topicId && isShared && !!AGENT_SHARE_ALLOWED_PROVIDERS;
++  const isShareRestricted =
++    !topicId && isShared && !!AGENT_SHARE_ALLOWED_PROVIDERS && !shareModelExempt;
 +  const enabledList = isShareRestricted
 +    ? chatModels.filter((item) => AGENT_SHARE_ALLOWED_PROVIDERS?.includes(item.id))
 +    : claudeCode.enabledList;
@@ -16690,7 +16691,7 @@ index 99027b3ede..1d5582de9e 100644
  export interface MessageListQueryContext {
    agentId?: string | null;
 diff --git a/src/routes/(main)/agent/profile/features/EngineEditor/index.tsx b/src/routes/(main)/agent/profile/features/EngineEditor/index.tsx
-index be62033749..a9eeca1895 100644
+index 3af13b891b..9d83fc6b5b 100644
 --- a/src/routes/(main)/agent/profile/features/EngineEditor/index.tsx
 +++ b/src/routes/(main)/agent/profile/features/EngineEditor/index.tsx
 @@ -20,6 +20,8 @@ import { buildAgentProfileTabPath } from '@/features/AgentProfileTabs/tabOptions
@@ -16702,18 +16703,18 @@ index be62033749..a9eeca1895 100644
  import { useEnabledChatModels } from '@/hooks/useEnabledChatModels';
  import { usePermission } from '@/hooks/usePermission';
  import { useAgentStore } from '@/store/agent';
-@@ -37,17 +39,29 @@ const EngineEditor = memo(() => {
-   const agentId = useAgentStore((s) => s.activeAgentId || '');
-   const config = useAgentStore(agentSelectors.getAgentConfigById(agentId), isEqual);
-   const { isShared } = useAgentShareSupported(agentId);
+@@ -40,17 +42,29 @@ const EngineEditor = memo(() => {
+   const shareModelExempt = useAgentStore(
+     agentByIdSelectors.isAgentShareModelRestrictionExemptById(agentId),
+   );
 +  const isHeterogeneous = useAgentStore(agentSelectors.isCurrentAgentHeterogeneous);
    const chatModels = useEnabledChatModels();
 -  const enabledList =
--    isShared && AGENT_SHARE_ALLOWED_PROVIDERS
+-    isShared && AGENT_SHARE_ALLOWED_PROVIDERS && !shareModelExempt
 -      ? chatModels.filter((provider) => AGENT_SHARE_ALLOWED_PROVIDERS?.includes(provider.id))
 -      : undefined;
 +  const claudeCode = useClaudeCodeModels(chatModels, !isHeterogeneous);
-+  const isShareRestricted = isShared && !!AGENT_SHARE_ALLOWED_PROVIDERS;
++  const isShareRestricted = isShared && !!AGENT_SHARE_ALLOWED_PROVIDERS && !shareModelExempt;
 +  const enabledList = isShareRestricted
 +    ? chatModels.filter((provider) => AGENT_SHARE_ALLOWED_PROVIDERS?.includes(provider.id))
 +    : claudeCode.enabledList;
@@ -16737,7 +16738,7 @@ index be62033749..a9eeca1895 100644
    const heterogeneousProvider = config?.agencyConfig?.heterogeneousProvider;
    const isRemoteHetero =
      isHeterogeneous &&
-@@ -107,7 +121,7 @@ const EngineEditor = memo(() => {
+@@ -110,7 +124,7 @@ const EngineEditor = memo(() => {
                        placement={'bottomRight'}
                        provider={config?.provider}
                        notice={
@@ -16746,7 +16747,7 @@ index be62033749..a9eeca1895 100644
                            <Alert
                              showIcon
                              title={t('share.settings.modelRestriction.title', { ns: 'agent' })}
-@@ -116,7 +130,13 @@ const EngineEditor = memo(() => {
+@@ -119,7 +133,13 @@ const EngineEditor = memo(() => {
                                ns: 'agent',
                              })}
                            />
@@ -16761,7 +16762,7 @@ index be62033749..a9eeca1895 100644
                        }
                        onModelChange={async (value) => {
                          if (canEdit) await updateAgentConfigById(agentId, value);
-@@ -124,7 +144,7 @@ const EngineEditor = memo(() => {
+@@ -127,7 +147,7 @@ const EngineEditor = memo(() => {
                      >
                        <Button disabled={!canEdit}>
                          <ModelIcon model={config?.model} size={20} />

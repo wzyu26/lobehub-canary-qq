@@ -13,7 +13,7 @@ patch = root / 'patches/ai-comments.patch'
 digest = hashlib.sha256(patch.read_bytes()).hexdigest()
 # The upstream commit the patch was cut against. Its blobs let a nearby upstream edit merge
 # three-way instead of stopping the build; a real conflict still fails here.
-BASE = '5c81da51a74635f57469109774af1061b5e048cb'
+BASE = '0410a4a148e916ac426a5f9a6f9d3e9a474f54b3'
 subprocess.run(['git', '-C', str(source), 'fetch', '--depth', '1', 'origin', BASE], check=True)
 subprocess.run(['git', '-C', str(source), 'apply', '--3way', str(patch)], check=True)
 
