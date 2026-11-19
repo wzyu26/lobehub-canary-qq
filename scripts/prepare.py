@@ -28,10 +28,17 @@ test = f'''RUN set -eu; cd packages/chat-adapter-qq; \\
 # This is a token saving only, so upstream drift warns instead of stopping the build.
 inbox = source / 'packages/builtin-agents/src/agents/inbox/index.ts'
 text = inbox.read_text(encoding='utf-8')
-plugins = 'plugins: [AgentDocumentsIdentifier, UserInteractionIdentifier, ...(ctx.plugins || [])],'
+# Upstream later dropped AgentDocumentsIdentifier from this list; accept both shapes.
+pluginVariants = {
+    'plugins: [AgentDocumentsIdentifier, UserInteractionIdentifier, ...(ctx.plugins || [])],':
+        'plugins: [AgentDocumentsIdentifier, ...(ctx.plugins || [])],',
+    'plugins: [UserInteractionIdentifier, ...(ctx.plugins || [])],':
+        'plugins: [...(ctx.plugins || [])],',
+}
+plugins = next((p for p in pluginVariants if text.count(p) == 1), None)
 importLine = "import { UserInteractionIdentifier } from '@lobechat/builtin-tool-user-interaction';\n"
-if text.count(plugins) == 1 and text.count(importLine) == 1 and text.count('UserInteractionIdentifier') == 2:
-    text = text.replace(plugins, 'plugins: [AgentDocumentsIdentifier, ...(ctx.plugins || [])],')
+if plugins and text.count(importLine) == 1 and text.count('UserInteractionIdentifier') == 2:
+    text = text.replace(plugins, pluginVariants[plugins])
     inbox.write_text(text.replace(importLine, ''), encoding='utf-8', newline='\n')
     print('Removed the duplicate User Interaction tool from the inbox assistant')
 elif 'UserInteractionIdentifier' not in text:
