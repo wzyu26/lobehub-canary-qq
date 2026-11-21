@@ -5059,10 +5059,10 @@ index 0000000000..8564e591de
 +  }),
 +});
 diff --git a/apps/server/src/routers/lambda/index.ts b/apps/server/src/routers/lambda/index.ts
-index 0f86569fd2..66ccd7a72b 100644
+index 63f23cfbbc..afd783d0f3 100644
 --- a/apps/server/src/routers/lambda/index.ts
 +++ b/apps/server/src/routers/lambda/index.ts
-@@ -56,6 +56,7 @@ import { canvasRouter } from './canvas';
+@@ -57,6 +57,7 @@ import { canvasRouter } from './canvas';
  import { changelogRouter } from './changelog';
  import { channelRouter } from './channel';
  import { chunkRouter } from './chunk';
@@ -5567,7 +5567,7 @@ index a0a66bcd96..789184ed36 100644
      return { canUseDevice: true, reason: 'first-party' };
    }
 diff --git a/apps/server/src/services/aiAgent/index.ts b/apps/server/src/services/aiAgent/index.ts
-index 93bf3d5f7b..2d4bf12a5e 100644
+index c9bbea70fa..4e7f0dcf05 100644
 --- a/apps/server/src/services/aiAgent/index.ts
 +++ b/apps/server/src/services/aiAgent/index.ts
 @@ -726,6 +726,7 @@ export class AiAgentService {
@@ -5579,7 +5579,7 @@ index 93bf3d5f7b..2d4bf12a5e 100644
      request: AgentRunInitRequest;
      state: AgentState;
 diff --git a/apps/server/src/services/aiAgent/pipeline/deferredInit.ts b/apps/server/src/services/aiAgent/pipeline/deferredInit.ts
-index 324b78663b..068d20113a 100644
+index f2bdd08615..dd78e542c4 100644
 --- a/apps/server/src/services/aiAgent/pipeline/deferredInit.ts
 +++ b/apps/server/src/services/aiAgent/pipeline/deferredInit.ts
 @@ -166,9 +166,15 @@ export const runDeferredOperationInit = async (
@@ -5889,7 +5889,7 @@ index 0000000000..4571eaf378
 +  });
 +});
 diff --git a/apps/server/src/services/aiAgent/pipeline/turnSetup.ts b/apps/server/src/services/aiAgent/pipeline/turnSetup.ts
-index b8093b098c..3d6ebcdc34 100644
+index 9e626df926..088c1a4186 100644
 --- a/apps/server/src/services/aiAgent/pipeline/turnSetup.ts
 +++ b/apps/server/src/services/aiAgent/pipeline/turnSetup.ts
 @@ -31,6 +31,7 @@ import { resolveModelExtendParamsForUser } from '@/server/modules/AgentRuntime/a
@@ -5935,7 +5935,7 @@ index b8093b098c..3d6ebcdc34 100644
      if (
        agentConfig.agencyConfig?.executionTargetSelectionPolicy === 'fixed' &&
        agentConfig.agencyConfig.boundDeviceId !== directory.deviceId
-@@ -748,19 +755,6 @@ export const setupTurn = async (
+@@ -749,19 +756,6 @@ export const setupTurn = async (
          taskId: operationTaskId,
          topicProjectId: existingTopic?.projectId ?? null,
        });
@@ -5955,7 +5955,7 @@ index b8093b098c..3d6ebcdc34 100644
        // Fail-closed guard: a non-share run must never operate on a share-visitor
        // topic. `findById` is ownership-scoped but deliberately does NOT exclude
        // visitor topics (see its JSDoc) — they carry the CREATOR's own userId for
-@@ -794,6 +788,17 @@ export const setupTurn = async (
+@@ -795,6 +789,17 @@ export const setupTurn = async (
            topicId,
          );
        }
@@ -5973,7 +5973,7 @@ index b8093b098c..3d6ebcdc34 100644
        // Effort and speed pins live in metadata and are independent of the model
        // pin (a runtime without a model selector can still pin them). They belong
        // to the topic's own agent for the same reason as the model pin.
-@@ -836,6 +841,7 @@ export const setupTurn = async (
+@@ -837,6 +842,7 @@ export const setupTurn = async (
        // A project-directory topic already routed to its directory's device above.
        if (
          !requestedDeviceId &&
@@ -5981,7 +5981,7 @@ index b8093b098c..3d6ebcdc34 100644
          !existingTopic?.projectWorkingDirectoryId &&
          topicPinnedDeviceId &&
          !isFixedExecutionTargetSelection &&
-@@ -899,6 +905,16 @@ export const setupTurn = async (
+@@ -900,6 +906,16 @@ export const setupTurn = async (
    // chat) and stops the device list from leaking into the LLM context.
    const { canUseDevice, reason: deviceAccessReason } = resolveDeviceAccessPolicy({
      botContext,
@@ -5998,7 +5998,7 @@ index b8093b098c..3d6ebcdc34 100644
      shareVisitor: shareGate ? { canUseDevice: shareGate.canUseDevice } : undefined,
    });
    log(
-@@ -912,7 +928,8 @@ export const setupTurn = async (
+@@ -913,7 +929,8 @@ export const setupTurn = async (
    // the UI), fall back to the legacy `model` field for backwards compatibility
    // (shared with the inbox write guard via `isHeterogeneousAgentModelId`).
    const heteroProviderType = agentConfig.agencyConfig?.heterogeneousProvider?.type;
@@ -11112,10 +11112,10 @@ index cf4139feaa..a2c15c0792 100644
        } satisfies FlowControl,
        headers: options?.extraHeaders,
 diff --git a/docs/development/database-schema.dbml b/docs/development/database-schema.dbml
-index 1c73741fc0..4281930877 100644
+index a52960504a..1551698bd6 100644
 --- a/docs/development/database-schema.dbml
 +++ b/docs/development/database-schema.dbml
-@@ -1893,6 +1893,87 @@ table chat_groups_agents {
+@@ -1907,6 +1907,87 @@ table chat_groups_agents {
    }
  }
  
@@ -11204,7 +11204,7 @@ index 1c73741fc0..4281930877 100644
    id uuid [pk, not null, default: `gen_random_uuid()`]
    user_connector_id uuid [not null]
 diff --git a/locales/en-US/chat.json b/locales/en-US/chat.json
-index 97a1978d03..dcd35f2e43 100644
+index ffb0370637..14464767e7 100644
 --- a/locales/en-US/chat.json
 +++ b/locales/en-US/chat.json
 @@ -143,6 +143,31 @@
@@ -11252,7 +11252,7 @@ index 4b86225107..3adb94fef8 100644
    "cohere.description": "Cohere delivers cutting-edge multilingual models, advanced retrieval, and AI workspaces for modern enterprises—all in one secure platform.",
    "cometapi.description": "CometAPI provides access to frontier models from OpenAI, Anthropic, Google, and more, letting users choose the best model and pricing for diverse use cases.",
 diff --git a/locales/zh-CN/chat.json b/locales/zh-CN/chat.json
-index fa5e5d21e9..48a9808b26 100644
+index 9a4b4f9a71..3d112058d0 100644
 --- a/locales/zh-CN/chat.json
 +++ b/locales/zh-CN/chat.json
 @@ -143,6 +143,31 @@
@@ -14800,10 +14800,10 @@ index 0000000000..e9ec663aec
 +
 +export const ASSISTANT_ISOLATION_ARGS = ['--setting-sources', '', '--strict-mcp-config'] as const;
 diff --git a/packages/heterogeneous-agents/src/spawn/index.ts b/packages/heterogeneous-agents/src/spawn/index.ts
-index 8dff1da04c..bef429a912 100644
+index 3bdf316cc6..8ace4c4603 100644
 --- a/packages/heterogeneous-agents/src/spawn/index.ts
 +++ b/packages/heterogeneous-agents/src/spawn/index.ts
-@@ -193,6 +193,7 @@ export {
+@@ -201,6 +201,7 @@ export {
  // `resolveCliSpawnPlan`), so pulling it in would break unrelated suites at
  // import time. Import it from the dedicated `@lobechat/heterogeneous-agents/
  // resolveCliCommand` subpath instead.
@@ -15091,13 +15091,13 @@ index 0000000000..3bba683e57
 +  });
 +});
 diff --git a/packages/heterogeneous-agents/src/spawn/spawnAgent.ts b/packages/heterogeneous-agents/src/spawn/spawnAgent.ts
-index e195fd583e..9088337439 100644
+index a819e41ca1..ed2d26ed78 100644
 --- a/packages/heterogeneous-agents/src/spawn/spawnAgent.ts
 +++ b/packages/heterogeneous-agents/src/spawn/spawnAgent.ts
-@@ -27,6 +27,12 @@ import {
- } from './acpSpawnAgent';
+@@ -29,6 +29,12 @@ import {
  import { AgentStreamPipeline, type UploadHeterogeneousImage } from './agentStreamPipeline';
  import { buildAntigravityArgs } from './antigravity';
+ import { AntigravityLiveInput, resolveAntigravityLiveRuntimeEnd } from './antigravityLiveInput';
 +import {
 +  assertAssistantArgs,
 +  ASSISTANT_ISOLATION_ARGS,
@@ -15107,7 +15107,7 @@ index e195fd583e..9088337439 100644
  import {
    type ClaudeCodeControlRequest,
    type ClaudeCodeControlRequestHandle,
-@@ -67,7 +73,14 @@ export interface SpawnAgentOptions {
+@@ -69,7 +75,14 @@ export interface SpawnAgentOptions {
    cwd?: string;
    /** Create a dedicated Unix process group. Disable beneath a detached wrapper. */
    detached?: boolean;
@@ -15123,7 +15123,7 @@ index e195fd583e..9088337439 100644
    env?: Record<string, string>;
    /** Extra CLI arguments appended after the agent's preset flags. */
    extraArgs?: string[];
-@@ -78,6 +91,8 @@ export interface SpawnAgentOptions {
+@@ -80,6 +93,8 @@ export interface SpawnAgentOptions {
     * connected client renders live token streaming.
     */
    includePartialMessages?: boolean;
@@ -15132,7 +15132,7 @@ index e195fd583e..9088337439 100644
    /** Initial model selected through the agent protocol after session setup (Droid/TRAE ACP). */
    initialModel?: string;
    /**
-@@ -86,6 +101,8 @@ export interface SpawnAgentOptions {
+@@ -88,6 +103,8 @@ export interface SpawnAgentOptions {
     * plain string this is unused.
     */
    inputOptions?: BuildAgentInputOptions;
@@ -15141,7 +15141,7 @@ index e195fd583e..9088337439 100644
    /**
     * (Claude Code only) Keep stdin open while the session can still use input,
     * exposing `sendUserMessage` / `interruptTurn` on the handle. Runtime end is
-@@ -187,6 +204,12 @@ export interface SpawnAgentHandle {
+@@ -189,6 +206,12 @@ export interface SpawnAgentHandle {
     * message as a new turn instead.
     */
    sendUserMessage?: (prompt: AgentPromptInput, options?: { uuid?: string }) => Promise<boolean>;
@@ -15154,7 +15154,7 @@ index e195fd583e..9088337439 100644
    /**
     * The agent's native session id, extracted from the `system:init` event.
     * Available after the `events` async iterable has been fully consumed.
-@@ -299,6 +322,7 @@ interface BuildSpawnArgsParams {
+@@ -303,6 +326,7 @@ interface BuildSpawnArgsParams {
    includePartialMessages: boolean;
    /** Per-agent input args produced by `buildAgentInput` (e.g. Codex `--image`). */
    inputArgs: string[];
@@ -15162,7 +15162,7 @@ index e195fd583e..9088337439 100644
    /** (Claude Code only) Replay consumed user messages for live input. */
    liveInput?: boolean;
    /** (Claude Code only) Lab permission mode the host answers prompts for. */
-@@ -313,6 +337,7 @@ const buildClaudeCodeArgs = ({
+@@ -317,6 +341,7 @@ const buildClaudeCodeArgs = ({
    extraArgs,
    includePartialMessages,
    inputArgs,
@@ -15170,7 +15170,7 @@ index e195fd583e..9088337439 100644
    liveInput,
    permissionMode,
    permissionPrompts,
-@@ -325,6 +350,7 @@ const buildClaudeCodeArgs = ({
+@@ -329,6 +354,7 @@ const buildClaudeCodeArgs = ({
    ...(resumeSessionId ? ['--resume', resumeSessionId] : []),
    ...inputArgs,
    ...extraArgs,
@@ -15178,7 +15178,7 @@ index e195fd583e..9088337439 100644
  ];
  
  const buildCodeBuddyArgs = ({
-@@ -447,7 +473,9 @@ const buildSpawnArgs = (params: BuildSpawnArgsParams): string[] => {
+@@ -451,7 +477,9 @@ const buildSpawnArgs = (params: BuildSpawnArgsParams): string[] => {
  };
  
  const killProcessTree = (proc: ChildProcess, signal: NodeJS.Signals, detached: boolean): void => {
@@ -15189,7 +15189,7 @@ index e195fd583e..9088337439 100644
  
    // On Windows the spawn `detached` flag has different semantics; fall back
    // to a direct signal. Tree-kill via `taskkill` is what the desktop
-@@ -494,6 +522,35 @@ const killProcessTree = (proc: ChildProcess, signal: NodeJS.Signals, detached: b
+@@ -498,6 +526,35 @@ const killProcessTree = (proc: ChildProcess, signal: NodeJS.Signals, detached: b
   * failed image fetch surfaces before the child starts.
   */
  export const spawnAgent = async (options: SpawnAgentOptions): Promise<SpawnAgentHandle> => {
@@ -15225,7 +15225,7 @@ index e195fd583e..9088337439 100644
    if (options.agentType === 'trae') return spawnTraeAcpAgent(options);
  
    const command = resolveHeterogeneousAgentCommand(options.agentType, options.command);
-@@ -520,7 +577,7 @@ export const spawnAgent = async (options: SpawnAgentOptions): Promise<SpawnAgent
+@@ -524,7 +581,7 @@ export const spawnAgent = async (options: SpawnAgentOptions): Promise<SpawnAgent
    // caller's env, not the inherited one: a standalone run nested inside some
    // other conversation is not answering it.
    const lobeHubCli =
@@ -15234,7 +15234,7 @@ index e195fd583e..9088337439 100644
        ? await prepareClaudeCodeLobeHubCli(options.prompt, options.extraArgs, {
            resumed: Boolean(options.resumeSessionId),
            version: options.commandVersion,
-@@ -532,11 +589,6 @@ export const spawnAgent = async (options: SpawnAgentOptions): Promise<SpawnAgent
+@@ -536,11 +593,6 @@ export const spawnAgent = async (options: SpawnAgentOptions): Promise<SpawnAgent
      options.inputOptions,
    );
    const inputPlan = { ...promptPlan, args: [...lobeHubCli.args, ...promptPlan.args] };
@@ -15246,33 +15246,24 @@ index e195fd583e..9088337439 100644
    // Codex builds each shell command's env from `[shell_environment_policy]`,
    // not from its own process env, so a user's `inherit = "core"` strips the
    // run context `lh` needs. Forward it as `shell_environment_policy.set.*`
-@@ -567,6 +619,8 @@ const spawnCliAgent = async (
+@@ -572,6 +624,8 @@ const spawnCliAgent = async (
    // Without, a picked mode still applies and fails closed (never bypass).
    const permissionMode = options.agentType === 'claude-code' ? options.permissionMode : undefined;
-   const permissionPrompts = liveInput && !!options.askUserBridge;
+   const permissionPrompts = claudeLiveInput && !!options.askUserBridge;
 +  const deferPrompt =
-+    options.agentType === 'claude-code' && options.deferPrompt === true && !liveInput;
++    options.agentType === 'claude-code' && options.deferPrompt === true && !claudeLiveInput;
    const args = buildSpawnArgs({
      agentType: options.agentType,
      configArgs:
-@@ -576,6 +630,7 @@ const spawnCliAgent = async (
+@@ -581,6 +635,7 @@ const spawnCliAgent = async (
      extraArgs: options.extraArgs ?? [],
      includePartialMessages: options.includePartialMessages ?? false,
      inputArgs: inputPlan.args,
 +    integrationMode: options.integrationMode,
-     liveInput,
+     liveInput: claudeLiveInput,
      permissionMode,
      permissionPrompts,
-@@ -602,7 +657,7 @@ const spawnCliAgent = async (
-         })
-       : undefined;
- 
--  const cliSpawnPlan = await resolveCliSpawnPlan(command, args);
-+  const cliSpawnPlan = await resolveCliSpawnPlan(command, args, childEnv);
-   const detached = platform() !== 'win32' && (options.detached ?? true);
-   const startedAt = Date.now();
-   const proc = spawnManaged(cliSpawnPlan.command, cliSpawnPlan.args, {
-@@ -701,8 +756,12 @@ const spawnCliAgent = async (
+@@ -715,8 +770,12 @@ const spawnCliAgent = async (
        wake();
      });
    }
@@ -15285,7 +15276,7 @@ index e195fd583e..9088337439 100644
    } else if (proc.stdin) {
      proc.stdin.write(inputPlan.stdin, () => {
        proc.stdin?.end();
-@@ -835,6 +894,24 @@ const spawnCliAgent = async (
+@@ -868,6 +927,24 @@ const spawnCliAgent = async (
        return pipeline.sessionId;
      },
      stderr,
@@ -15311,10 +15302,10 @@ index e195fd583e..9088337439 100644
  };
  
 diff --git a/packages/locales/src/default/chat.ts b/packages/locales/src/default/chat.ts
-index 8005b90357..61315f9e5d 100644
+index e336b39cf2..c479c37909 100644
 --- a/packages/locales/src/default/chat.ts
 +++ b/packages/locales/src/default/chat.ts
-@@ -24,6 +24,35 @@ export default {
+@@ -25,6 +25,35 @@ export default {
    'heteroAgent.antigravityQuota.error':
      'Could not query Antigravity quota. Check the device and try again.',
  
@@ -15772,7 +15763,7 @@ index 0000000000..be8af1c938
 +
 +export const POST = (request: Request) => app.fetch(request);
 diff --git a/src/features/AgentProfileCard/AgentProfilePopup.tsx b/src/features/AgentProfileCard/AgentProfilePopup.tsx
-index d11db3b4d5..6cd2d5a26c 100644
+index 098239c752..1de2c63d93 100644
 --- a/src/features/AgentProfileCard/AgentProfilePopup.tsx
 +++ b/src/features/AgentProfileCard/AgentProfilePopup.tsx
 @@ -201,6 +201,7 @@ const AgentProfilePopup = memo<AgentProfilePopupProps>(
