@@ -5185,12 +5185,12 @@ index 20d727ac4c..2185cb9c12 100644
      if (['done', 'error', 'interrupted', 'abandoned'].includes(operation.status)) return true;
  
 diff --git a/apps/server/src/services/agentRuntime/AgentRuntimeService/operationInitSlots.ts b/apps/server/src/services/agentRuntime/AgentRuntimeService/operationInitSlots.ts
-index aa1839f2ac..8ff2d0ab51 100644
+index 842feac8d1..a4ba58eaf5 100644
 --- a/apps/server/src/services/agentRuntime/AgentRuntimeService/operationInitSlots.ts
 +++ b/apps/server/src/services/agentRuntime/AgentRuntimeService/operationInitSlots.ts
 @@ -1,5 +1,6 @@
  import type { AgentState } from '@lobechat/agent-runtime';
- import { extractActivatedToolIdsFromMessages, UsageCounter } from '@lobechat/agent-runtime';
+ import { extractToolActivationsFromMessages, UsageCounter } from '@lobechat/agent-runtime';
 +import { resolveAssistantRuntimeBackend } from '@lobechat/types';
  
  import { type OperationCreationParams } from '../types';
@@ -11204,10 +11204,10 @@ index a52960504a..1551698bd6 100644
    id uuid [pk, not null, default: `gen_random_uuid()`]
    user_connector_id uuid [not null]
 diff --git a/locales/en-US/chat.json b/locales/en-US/chat.json
-index ffb0370637..14464767e7 100644
+index b15042e23b..e8e4db43e2 100644
 --- a/locales/en-US/chat.json
 +++ b/locales/en-US/chat.json
-@@ -143,6 +143,31 @@
+@@ -151,6 +151,31 @@
    "claudeCodeInstallGuide.menuNotification.title": "Claude Code CLI not found",
    "claudeCodeInstallGuide.reason": "LobeHub could not start Claude Code: {{message}}",
    "claudeCodeInstallGuide.title": "Install Claude Code CLI",
@@ -11252,10 +11252,10 @@ index 4b86225107..3adb94fef8 100644
    "cohere.description": "Cohere delivers cutting-edge multilingual models, advanced retrieval, and AI workspaces for modern enterprises—all in one secure platform.",
    "cometapi.description": "CometAPI provides access to frontier models from OpenAI, Anthropic, Google, and more, letting users choose the best model and pricing for diverse use cases.",
 diff --git a/locales/zh-CN/chat.json b/locales/zh-CN/chat.json
-index 9a4b4f9a71..3d112058d0 100644
+index 664c0958f4..bac2b3149d 100644
 --- a/locales/zh-CN/chat.json
 +++ b/locales/zh-CN/chat.json
-@@ -143,6 +143,31 @@
+@@ -151,6 +151,31 @@
    "claudeCodeInstallGuide.menuNotification.title": "未找到 Claude Code CLI",
    "claudeCodeInstallGuide.reason": "LobeHub 无法启动 Claude Code：{{message}}",
    "claudeCodeInstallGuide.title": "安装 Claude Code CLI",
@@ -15091,7 +15091,7 @@ index 0000000000..3bba683e57
 +  });
 +});
 diff --git a/packages/heterogeneous-agents/src/spawn/spawnAgent.ts b/packages/heterogeneous-agents/src/spawn/spawnAgent.ts
-index a819e41ca1..ed2d26ed78 100644
+index f65687f091..a438d12244 100644
 --- a/packages/heterogeneous-agents/src/spawn/spawnAgent.ts
 +++ b/packages/heterogeneous-agents/src/spawn/spawnAgent.ts
 @@ -29,6 +29,12 @@ import {
@@ -15276,7 +15276,7 @@ index a819e41ca1..ed2d26ed78 100644
    } else if (proc.stdin) {
      proc.stdin.write(inputPlan.stdin, () => {
        proc.stdin?.end();
-@@ -868,6 +927,24 @@ const spawnCliAgent = async (
+@@ -866,6 +925,24 @@ const spawnCliAgent = async (
        return pipeline.sessionId;
      },
      stderr,
@@ -15302,7 +15302,7 @@ index a819e41ca1..ed2d26ed78 100644
  };
  
 diff --git a/packages/locales/src/default/chat.ts b/packages/locales/src/default/chat.ts
-index e336b39cf2..c479c37909 100644
+index a1481edf20..49641c2ce0 100644
 --- a/packages/locales/src/default/chat.ts
 +++ b/packages/locales/src/default/chat.ts
 @@ -25,6 +25,35 @@ export default {
@@ -15742,7 +15742,7 @@ index 7794180142..d5ebb6a0d4 100644
  export * from './creds';
  export * from './dashboard';
 diff --git a/pnpm-workspace.yaml b/pnpm-workspace.yaml
-index 621c06adab..39c53bcff8 100644
+index ee9daedb6e..fee6eb2353 100644
 --- a/pnpm-workspace.yaml
 +++ b/pnpm-workspace.yaml
 @@ -24,6 +24,7 @@ packages:
@@ -16162,7 +16162,7 @@ index c8d28f2f6e..27e219eacc 100644
    const findBuiltin = (id: string, providerId?: string) =>
      builtinAiModelList.find(
 diff --git a/src/features/ServiceModel/ChatAssistForm.tsx b/src/features/ServiceModel/ChatAssistForm.tsx
-index 74840df316..5925af956f 100644
+index f3dd14161d..4b89e9a593 100644
 --- a/src/features/ServiceModel/ChatAssistForm.tsx
 +++ b/src/features/ServiceModel/ChatAssistForm.tsx
 @@ -51,6 +51,7 @@ const ChatAssistControl = memo<ChatAssistControlProps>(({ itemKey }) => {
