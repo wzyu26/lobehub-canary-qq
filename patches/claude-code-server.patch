@@ -5105,10 +5105,10 @@ index 02eeec015c..c6a4037c66 100644
          ? deriveAgentInterventionQueueDeduplicationId(operationId, initialStepCount)
          : undefined;
 diff --git a/apps/server/src/services/agentRuntime/AgentRuntimeService/executeStep/index.ts b/apps/server/src/services/agentRuntime/AgentRuntimeService/executeStep/index.ts
-index 4ef9469497..1052ccf9c3 100644
+index 57916dac87..b0e5bfaff4 100644
 --- a/apps/server/src/services/agentRuntime/AgentRuntimeService/executeStep/index.ts
 +++ b/apps/server/src/services/agentRuntime/AgentRuntimeService/executeStep/index.ts
-@@ -232,6 +232,10 @@ export async function executeStep(
+@@ -233,6 +233,10 @@ export async function executeStep(
        }
        stopRunSlotLease = startRunSlotLease(deps.userId, agentState);
  
@@ -5204,10 +5204,10 @@ index 842feac8d1..a4ba58eaf5 100644
        ...(params.clientProtocol === 2 && { clientProtocol: 2 as const }),
        ...(params.includeFinalState === true && { includeFinalState: true }),
 diff --git a/apps/server/src/services/agentRuntime/AgentRuntimeService/runtimeFactory.ts b/apps/server/src/services/agentRuntime/AgentRuntimeService/runtimeFactory.ts
-index d619cd2781..eca6c6df1d 100644
+index 8253b61626..011ebb54e6 100644
 --- a/apps/server/src/services/agentRuntime/AgentRuntimeService/runtimeFactory.ts
 +++ b/apps/server/src/services/agentRuntime/AgentRuntimeService/runtimeFactory.ts
-@@ -391,7 +391,7 @@ export async function createAgentRuntime(
+@@ -394,7 +394,7 @@ export async function createAgentRuntime(
      executors: withGraphSteerReopen(createRuntimeExecutors(executorContext), operationId),
    });
  
@@ -6010,13 +6010,13 @@ index 43c3823a38..5e67d4668d 100644
    // ── Shared turn setup (runs for BOTH hetero and normal agents) ──────────
 diff --git a/apps/server/src/services/claudeCode/__tests__/claimHistory.integration.test.ts b/apps/server/src/services/claudeCode/__tests__/claimHistory.integration.test.ts
 new file mode 100644
-index 0000000000..f39f203bf7
+index 0000000000..6e28e91bd7
 --- /dev/null
 +++ b/apps/server/src/services/claudeCode/__tests__/claimHistory.integration.test.ts
-@@ -0,0 +1,273 @@
+@@ -0,0 +1,284 @@
 +import { createHash } from 'node:crypto';
 +
-+import { eq } from 'drizzle-orm';
++import { eq, inArray } from 'drizzle-orm';
 +import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 +
 +import { getTestDB } from '@/database/core/getTestDB';
@@ -6024,9 +6024,11 @@ index 0000000000..f39f203bf7
 +import {
 +  agents,
 +  agentSkills,
++  environments,
 +  files,
 +  messages,
 +  messagesFiles,
++  projectEnvironments,
 +  projects,
 +  projectWorkingDirectories,
 +  topics,
@@ -6100,6 +6102,15 @@ index 0000000000..f39f203bf7
 +  });
 +});
 +afterEach(async () => {
++  // Building a project's run context ensures its environment, which restricts user deletion.
++  const userEnvironments = db
++    .select({ id: environments.id })
++    .from(environments)
++    .where(eq(environments.userId, userId));
++  await db
++    .delete(projectEnvironments)
++    .where(inArray(projectEnvironments.environmentId, userEnvironments));
++  await db.delete(environments).where(eq(environments.userId, userId));
 +  await db.delete(users).where(eq(users.id, userId));
 +  inMemoryAgentStateManager.clear();
 +  inMemoryStreamEventManager.clear();
@@ -11117,10 +11128,10 @@ index cf4139feaa..a2c15c0792 100644
        } satisfies FlowControl,
        headers: options?.extraHeaders,
 diff --git a/docs/development/database-schema.dbml b/docs/development/database-schema.dbml
-index 163e8211cf..0be0799a77 100644
+index 451d532a07..e5a27ac934 100644
 --- a/docs/development/database-schema.dbml
 +++ b/docs/development/database-schema.dbml
-@@ -1936,6 +1936,87 @@ table chat_groups_agents {
+@@ -1953,6 +1953,87 @@ table chat_groups_agents {
    }
  }
  
@@ -11209,7 +11220,7 @@ index 163e8211cf..0be0799a77 100644
    id uuid [pk, not null, default: `gen_random_uuid()`]
    user_connector_id uuid [not null]
 diff --git a/locales/en-US/chat.json b/locales/en-US/chat.json
-index 831f47c5fc..6b7f46f8c4 100644
+index 0a757fd190..d153f86611 100644
 --- a/locales/en-US/chat.json
 +++ b/locales/en-US/chat.json
 @@ -151,6 +151,31 @@
@@ -11257,7 +11268,7 @@ index 4b86225107..3adb94fef8 100644
    "cohere.description": "Cohere delivers cutting-edge multilingual models, advanced retrieval, and AI workspaces for modern enterprises—all in one secure platform.",
    "cometapi.description": "CometAPI provides access to frontier models from OpenAI, Anthropic, Google, and more, letting users choose the best model and pricing for diverse use cases.",
 diff --git a/locales/zh-CN/chat.json b/locales/zh-CN/chat.json
-index 640a628347..79408e1072 100644
+index bf9b9f4c19..3ab0e5f293 100644
 --- a/locales/zh-CN/chat.json
 +++ b/locales/zh-CN/chat.json
 @@ -151,6 +151,31 @@
@@ -11420,10 +11431,10 @@ index d9cd3ae07e..f991e18674 100644
      state: AgentState,
    ): Promise<[ChatToolPayload[], ChatToolPayload[]]> {
 diff --git a/packages/agent-runtime/src/types/state.ts b/packages/agent-runtime/src/types/state.ts
-index 946d21e140..68654e132b 100644
+index 481b7819ed..2bab110dd9 100644
 --- a/packages/agent-runtime/src/types/state.ts
 +++ b/packages/agent-runtime/src/types/state.ts
-@@ -17,6 +17,7 @@ import type {
+@@ -18,6 +18,7 @@ import type {
    AgentRunInitRequest,
    AgentShareVisitorContext,
    AgentSignalOperationMarker,
@@ -11431,7 +11442,7 @@ index 946d21e140..68654e132b 100644
    ChatToolPayload,
    ChatTopicBotContext,
    EvalConnectorSnapshots,
-@@ -221,6 +222,8 @@ export interface AgentRunHostEnvelope {
+@@ -222,6 +223,8 @@ export interface AgentRunHostEnvelope {
    llmExecutor?: AgentRunLlmExecutor;
    /** Queue retry policy for step scheduling. */
    queue?: { retries?: number; retryDelay?: string };
@@ -13636,7 +13647,7 @@ index 0000000000..5510f3696e
 +export type ClaudeCodeEventItem = typeof claudeCodeEvents.$inferSelect;
 +export type ClaudeCodeToolReceiptItem = typeof claudeCodeToolReceipts.$inferSelect;
 diff --git a/packages/database/src/schemas/index.ts b/packages/database/src/schemas/index.ts
-index 159ab1b0b9..89d9bd95fb 100644
+index 8c3f5ded6a..f3470372de 100644
 --- a/packages/database/src/schemas/index.ts
 +++ b/packages/database/src/schemas/index.ts
 @@ -25,6 +25,7 @@ export * from './asyncTask';
@@ -15307,7 +15318,7 @@ index 3a4948e83e..68ee5467ce 100644
  };
  
 diff --git a/packages/locales/src/default/chat.ts b/packages/locales/src/default/chat.ts
-index d3d1d85b3a..23d0dc5ba4 100644
+index b19259bba7..3daa1d753f 100644
 --- a/packages/locales/src/default/chat.ts
 +++ b/packages/locales/src/default/chat.ts
 @@ -25,6 +25,35 @@ export default {
@@ -15728,10 +15739,10 @@ index 0000000000..9a77becfa9
 +  toolCallId: string;
 +}
 diff --git a/packages/types/src/index.ts b/packages/types/src/index.ts
-index f2b869223d..0b30498464 100644
+index 734851631c..46ddeb3e3d 100644
 --- a/packages/types/src/index.ts
 +++ b/packages/types/src/index.ts
-@@ -14,6 +14,7 @@ export * from './aiChat';
+@@ -15,6 +15,7 @@ export * from './aiChat';
  export * from './aiProvider';
  export * from './apiKey';
  export * from './artifact';
@@ -15739,8 +15750,8 @@ index f2b869223d..0b30498464 100644
  export * from './asyncTask';
  export * from './auth';
  export * from './brief';
-@@ -23,6 +24,7 @@ export * from './channelMessage';
- export * from './channelMessageCard';
+@@ -26,6 +27,7 @@ export * from './channelMessageCard';
+ export * from './channelReaction';
  export * from './chunk';
  export * from './contact';
 +export * from './claudeCode';
@@ -16688,7 +16699,7 @@ index 71d779ab7b..c2506a4a7d 100644
  export interface MessageListQueryContext {
    agentId?: string | null;
 diff --git a/src/routes/(main)/agent/profile/features/EngineEditor/index.tsx b/src/routes/(main)/agent/profile/features/EngineEditor/index.tsx
-index 3af13b891b..9d83fc6b5b 100644
+index 523ee95f5d..1288e8a4e3 100644
 --- a/src/routes/(main)/agent/profile/features/EngineEditor/index.tsx
 +++ b/src/routes/(main)/agent/profile/features/EngineEditor/index.tsx
 @@ -20,6 +20,8 @@ import { buildAgentProfileTabPath } from '@/features/AgentProfileTabs/tabOptions
@@ -16735,7 +16746,7 @@ index 3af13b891b..9d83fc6b5b 100644
    const heterogeneousProvider = config?.agencyConfig?.heterogeneousProvider;
    const isRemoteHetero =
      isHeterogeneous &&
-@@ -110,7 +124,7 @@ const EngineEditor = memo(() => {
+@@ -123,7 +137,7 @@ const EngineEditor = memo(() => {
                        placement={'bottomRight'}
                        provider={config?.provider}
                        notice={
@@ -16744,7 +16755,7 @@ index 3af13b891b..9d83fc6b5b 100644
                            <Alert
                              showIcon
                              title={t('share.settings.modelRestriction.title', { ns: 'agent' })}
-@@ -119,7 +133,13 @@ const EngineEditor = memo(() => {
+@@ -132,7 +146,13 @@ const EngineEditor = memo(() => {
                                ns: 'agent',
                              })}
                            />
@@ -16759,7 +16770,7 @@ index 3af13b891b..9d83fc6b5b 100644
                        }
                        onModelChange={async (value) => {
                          if (canEdit) await updateAgentConfigById(agentId, value);
-@@ -127,7 +147,7 @@ const EngineEditor = memo(() => {
+@@ -140,7 +160,7 @@ const EngineEditor = memo(() => {
                      >
                        <Button disabled={!canEdit}>
                          <ModelIcon model={config?.model} size={20} />
